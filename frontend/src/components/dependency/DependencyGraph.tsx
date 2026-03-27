@@ -103,14 +103,6 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     return () => clearTimeout(timer);
   }, [searchQuery, searchDependency]);
 
-  useEffect(() => {
-    if (!dependencyData) {
-      setActiveNodeId(null);
-      setHistory([]);
-      setHistoryIndex(-1);
-    }
-  }, [dependencyData]);
-
   const relationSet = useMemo(() => {
     if (!activeNodeId || !dependencyData) return new Set<string>();
     const related = new Set<string>([activeNodeId]);

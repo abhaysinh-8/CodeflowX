@@ -20,6 +20,7 @@ export default function Dashboard() {
     setLanguage,
     isLoadingFlowchart,
     isLoadingDependency,
+    dependencyData,
     setSelectedNodeId,
   } = useStore();
   const { analyze: analyzeFlowchart } = useFlowchartAPI();
@@ -138,6 +139,7 @@ export default function Dashboard() {
                   )}
                   {activeTab === 'dependency' && (
                     <DependencyGraph
+                      key={dependencyData?.graphId ?? 'dependency-empty'}
                       onOpenFlowchartNode={(irNodeId) => {
                         setSelectedNodeId(irNodeId);
                         setActiveTab('flowchart');
