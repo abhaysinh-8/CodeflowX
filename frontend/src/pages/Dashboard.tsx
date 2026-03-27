@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Layout, Zap, Share2, Search, Code2, Settings, 
-  ChevronRight, Play, Database, Shield, Maximize2,
+  Layout, Settings,
+  ChevronRight, Play, Database, Shield,
   Loader2, AlertCircle, Sparkles, Binary
 } from 'lucide-react';
 import Editor from '@monaco-editor/react';
@@ -63,8 +63,8 @@ export default function Dashboard() {
       } else {
         setError(data.error || 'Failed to analyze code');
       }
-    } catch (err: any) {
-      setError(err.message || 'Network error');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Network error');
     } finally {
       setLoading(false);
     }

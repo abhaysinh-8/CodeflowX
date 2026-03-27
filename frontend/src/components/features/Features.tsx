@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { GitBranch, Activity, Share2, Search, Cpu, Globe } from 'lucide-react';
+import { GitBranch, Activity, Share2, Search } from 'lucide-react';
 
 const features = [
   {

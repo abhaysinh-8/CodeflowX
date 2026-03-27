@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Code2, Zap, Layout, Menu, X } from 'lucide-react';
+import { Code2, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../ui/Button';
 

@@ -1,17 +1,27 @@
 import { create } from 'zustand';
+import type { Node, Edge } from 'reactflow';
+
+interface IRNodeData {
+  id?: string;
+  type?: string;
+  name?: string;
+  source_start?: number;
+  source_end?: number;
+  children?: IRNodeData[];
+}
 
 interface FlowchartState {
   code: string;
   language: string;
-  nodes: any[];
-  edges: any[];
-  ir: any;
+  nodes: Node[];
+  edges: Edge[];
+  ir: IRNodeData | null;
   isLoading: boolean;
   error: string | null;
-  
+
   setCode: (code: string) => void;
   setLanguage: (lang: string) => void;
-  setData: (data: { nodes: any[], edges: any[], ir: any }) => void;
+  setData: (data: { nodes: Node[], edges: Edge[], ir: IRNodeData | null }) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 }

@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { Button } from '../ui/Button';
 import { Layout, Maximize2, ShieldCheck, Zap } from 'lucide-react';
 

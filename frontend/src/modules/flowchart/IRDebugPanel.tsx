@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { ChevronRight, ChevronDown, ListTree, Code2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, ListTree } from 'lucide-react';
 import { useFlowchartStore } from '../../store/useFlowchartStore';
 
-const IRNodeView = ({ node, depth = 0 }: { node: any, depth?: number }) => {
+interface IRNodeData {
+  id?: string;
+  type?: string;
+  name?: string;
+  source_start?: number;
+  source_end?: number;
+  children?: IRNodeData[];
+}
+
+const IRNodeView = ({ node, depth = 0 }: { node: IRNodeData, depth?: number }) => {
   const [isOpen, setIsOpen] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
@@ -24,7 +33,7 @@ const IRNodeView = ({ node, depth = 0 }: { node: any, depth?: number }) => {
       
       {isOpen && hasChildren && (
         <div className="ml-2 border-l border-white/10 mt-1">
-          {node.children.map((child: any) => (
+          {node.children?.map((child: IRNodeData) => (
             <IRNodeView key={child.id} node={child} depth={depth + 1} />
           ))}
         </div>

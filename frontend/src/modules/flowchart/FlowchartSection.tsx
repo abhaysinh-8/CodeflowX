@@ -1,12 +1,5 @@
-import React, { useMemo } from 'react';
-import ReactFlow, { 
-  Background, 
-  Controls, 
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  addEdge
-} from 'reactflow';
+import React from 'react';
+import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { CustomNode } from './nodes/CustomNode';
 import { useFlowchartStore } from '../../store/useFlowchartStore';
@@ -30,7 +23,7 @@ export const FlowchartSection = () => {
         <Background color="#334155" gap={20} />
         <Controls className="!bg-slate-800 !border-white/20 !text-white" />
         <MiniMap 
-          nodeColor={(n) => '#3b82f6'} 
+          nodeColor={() => '#3b82f6'} 
           maskColor="rgba(15, 23, 42, 0.5)"
           className="!bg-slate-800 !border-white/20"
         />

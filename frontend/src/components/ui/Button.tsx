@@ -2,6 +2,7 @@ import React from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

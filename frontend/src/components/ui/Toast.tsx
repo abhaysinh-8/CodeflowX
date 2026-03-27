@@ -14,6 +14,7 @@ interface Toast {
 type ToastListener = (toast: Toast) => void;
 const listeners = new Set<ToastListener>();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const toast = {
   success: (message: string) => emit('success', message),
   error:   (message: string) => emit('error',   message),
