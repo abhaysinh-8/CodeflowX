@@ -8,10 +8,12 @@ import {
 import { useStore } from '../store/useStore';
 import { useFlowchartAPI } from '../hooks/useFlowchartAPI';
 import { useDependencyAPI } from '../hooks/useDependencyAPI';
+import { useExecutionAPI } from '../hooks/useExecutionAPI';
 import FlowchartCanvas from '../components/canvas/FlowchartCanvas';
 import IRDebugPanel from '../components/canvas/IRDebugPanel';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
 import DependencyGraph from '../components/dependency/DependencyGraph';
+import ExecutionVisualizer from '../components/execution/ExecutionVisualizer';
 import { Button } from '../components/ui/Button';
 
 export default function Dashboard() {
@@ -19,19 +21,29 @@ export default function Dashboard() {
     language,
     setLanguage,
     isLoadingFlowchart,
+    isLoadingExecution,
     isLoadingDependency,
     dependencyData,
     setSelectedNodeId,
   } = useStore();
   const { analyze: analyzeFlowchart } = useFlowchartAPI();
   const { analyzeDependency } = useDependencyAPI();
+  const executionAPI = useExecutionAPI();
 
   const [activeTab, setActiveTab] = useState('flowchart');
-  const isLoading = activeTab === 'dependency' ? isLoadingDependency : isLoadingFlowchart;
+  const isLoading = activeTab === 'dependency'
+    ? isLoadingDependency
+    : activeTab === 'execution'
+      ? isLoadingExecution
+      : isLoadingFlowchart;
 
   const analyzeActiveTab = () => {
     if (activeTab === 'dependency') {
       analyzeDependency();
+      return;
+    }
+    if (activeTab === 'execution') {
+      executionAPI.runExecution();
       return;
     }
     analyzeFlowchart();
@@ -135,7 +147,16 @@ export default function Dashboard() {
                 >
                   {activeTab === 'flowchart' && <FlowchartCanvas />}
                   {activeTab === 'execution' && (
-                    <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Execution Simulation (Coming Soon)</div>
+                    <ExecutionVisualizer
+                      runExecution={executionAPI.runExecution}
+                      play={executionAPI.play}
+                      pause={executionAPI.pause}
+                      jumpToStep={executionAPI.jumpToStep}
+                      playToNextBreakpoint={executionAPI.playToNextBreakpoint}
+                      updateSpeed={executionAPI.updateSpeed}
+                      refreshBreakpointHits={executionAPI.refreshBreakpointHits}
+                      isSocketConnected={executionAPI.isSocketConnected}
+                    />
                   )}
                   {activeTab === 'dependency' && (
                     <DependencyGraph

@@ -9,6 +9,7 @@ export interface DecisionNodeData extends Record<string, unknown> {
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const DecisionNode = ({ id, data, selected }: NodeProps) => {
@@ -28,6 +29,9 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
       `}
       style={{ width: 120, height: 80 }}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)] z-20" />
+      )}
       {/* Diamond shape */}
       <div
         className={`

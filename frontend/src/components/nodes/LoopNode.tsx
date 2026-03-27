@@ -10,6 +10,7 @@ export interface LoopNodeData extends Record<string, unknown> {
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const LoopNode = ({ id, data, selected }: NodeProps) => {
@@ -22,12 +23,15 @@ const LoopNode = ({ id, data, selected }: NodeProps) => {
       title={`Loop: ${nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Loop node: ${nodeData.label}`}
       className={`
-        min-w-[140px] rounded-xl border transition-all duration-200 cursor-pointer shadow-lg
+        relative min-w-[140px] rounded-xl border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-green-400 ring-offset-1 ring-offset-background' : ''}
         ${selected ? 'border-green-400/80 shadow-green-500/30 shadow-xl' : 'border-green-500/30'}
         bg-[#0a1f12]/90
       `}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]" />
+      )}
       {/* Green header */}
       <div className="bg-green-700/70 px-3 py-1.5 flex items-center justify-between rounded-t-xl">
         <div className="flex items-center gap-1.5">
