@@ -53,16 +53,19 @@ function DependencyNode({ data, selected }: { data: Record<string, unknown>; sel
 }
 
 function ClusterNode({ data }: { data: Record<string, unknown> }) {
+  const collapsed = Boolean(data.collapsed);
+  const memberCount = Number(data.member_count ?? 0);
   return (
     <div
-      className="rounded-2xl border border-dashed border-white/20 bg-white/[0.02] backdrop-blur-sm pointer-events-none"
+      className={`rounded-2xl border border-dashed backdrop-blur-sm ${collapsed ? 'border-cyan-300/70 bg-cyan-500/10' : 'border-white/20 bg-white/[0.02]'}`}
       style={{
         width: Number(data.width ?? 320),
         height: Number(data.height ?? 180),
       }}
     >
-      <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-white/40 font-bold">
-        {String(data.label ?? '')}
+      <div className="px-3 py-2 text-[10px] uppercase tracking-widest font-bold flex items-center justify-between">
+        <span className={collapsed ? 'text-cyan-200/90' : 'text-white/40'}>{String(data.label ?? '')}</span>
+        <span className={collapsed ? 'text-cyan-200/70' : 'text-white/30'}>{collapsed ? `collapsed (${memberCount})` : `${memberCount} members`}</span>
       </div>
     </div>
   );
@@ -92,6 +95,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [showClusters, setShowClusters] = useState(true);
   const [collapseClassMembers, setCollapseClassMembers] = useState(false);
+  const [collapsedClusters, setCollapsedClusters] = useState<Record<string, boolean>>({});
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [instance, setInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
@@ -113,15 +117,29 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     return related;
   }, [activeNodeId, dependencyData]);
 
+  const clusterMembershipByNode = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    if (!dependencyData) return map;
+    for (const cluster of dependencyData.clusters) {
+      for (const nodeId of cluster.node_ids) {
+        if (!map[nodeId]) map[nodeId] = [];
+        map[nodeId].push(cluster.id);
+      }
+    }
+    return map;
+  }, [dependencyData]);
+
   const filteredBaseNodes = useMemo(() => {
     if (!dependencyData) return [];
     return dependencyData.nodes.filter((node) => {
       const nodeType = String((node.data as Record<string, unknown>)?.type ?? '');
+      const memberships = clusterMembershipByNode[node.id] ?? [];
+      if (memberships.some((clusterId) => collapsedClusters[clusterId])) return false;
       if (collapseClassMembers && nodeType === 'method') return false;
       if (filter === 'all') return true;
       return nodeType === filter;
     });
-  }, [collapseClassMembers, dependencyData, filter]);
+  }, [clusterMembershipByNode, collapseClassMembers, collapsedClusters, dependencyData, filter]);
 
   const visibleNodeIds = useMemo(() => new Set(filteredBaseNodes.map((node) => node.id)), [filteredBaseNodes]);
 
@@ -134,16 +152,19 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         type: 'cluster',
         position: { x: cluster.x, y: cluster.y },
         draggable: false,
-        selectable: false,
+        selectable: true,
         connectable: false,
         zIndex: -10,
         data: {
           label: `${cluster.type}: ${cluster.name}`,
           width: cluster.width,
           height: cluster.height,
+          cluster_id: cluster.id,
+          collapsed: Boolean(collapsedClusters[cluster.id]),
+          member_count: cluster.node_ids.length,
         },
       }));
-  }, [dependencyData, showClusters, visibleNodeIds]);
+  }, [collapsedClusters, dependencyData, showClusters, visibleNodeIds]);
 
   const graphNodes = useMemo<Node[]>(() => {
     return [
@@ -193,7 +214,16 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
-      if (node.type === 'cluster') return;
+      if (node.type === 'cluster') {
+        const clusterId = String((node.data as Record<string, unknown>)?.cluster_id ?? '');
+        if (clusterId) {
+          setCollapsedClusters((prev) => ({
+            ...prev,
+            [clusterId]: !prev[clusterId],
+          }));
+        }
+        return;
+      }
       selectNode(node.id);
       const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
       if (typeof irNodeId === 'string' && irNodeId) {
@@ -218,6 +248,15 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     if (!activeNodeId || !dependencyData) return null;
     return dependencyData.nodes.find((node) => node.id === activeNodeId) ?? null;
   }, [activeNodeId, dependencyData]);
+
+  const breadcrumbLabels = useMemo(() => {
+    if (!dependencyData || historyIndex < 0) return [];
+    const ids = history.slice(0, historyIndex + 1);
+    return ids.map((nodeId) => {
+      const node = dependencyData.nodes.find((item) => item.id === nodeId);
+      return String((node?.data as Record<string, unknown> | undefined)?.name ?? nodeId);
+    });
+  }, [dependencyData, history, historyIndex]);
 
   const goBack = useCallback(() => {
     if (historyIndex <= 0) return;
@@ -368,6 +407,13 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
             {filteredBaseNodes.length} nodes · {graphEdges.length} edges
           </span>
         </Panel>
+        {breadcrumbLabels.length > 0 && (
+          <Panel position="top-center" className="pointer-events-none">
+            <div className="max-w-[680px] truncate text-[10px] font-mono text-cyan-100/80 bg-black/45 border border-white/10 px-3 py-1.5 rounded-lg">
+              {breadcrumbLabels.join(' > ')}
+            </div>
+          </Panel>
+        )}
         <Panel position="bottom-left" className="pointer-events-none">
           <div className="bg-black/45 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white/60 leading-5">
             <div>ƒ Function / m Method / 📦 Module / C Class / ⚡ External / ▶ Entrypoint</div>

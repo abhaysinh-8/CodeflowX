@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position,  } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react';
 import { useStore } from '../../store/useStore';
+import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCoverageStatus } from './coverageStyles';
 
 export interface CallNodeData extends Record<string, unknown> {
   label: string;
@@ -10,11 +11,17 @@ export interface CallNodeData extends Record<string, unknown> {
   source_end?: number;
   is_active?: boolean;
   has_breakpoint?: boolean;
+  coverage_status?: string;
+  coverage_overlay?: boolean;
 }
 
 const CallNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as CallNodeData;
   const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
+  const coverageEnabled = Boolean(nodeData.coverage_overlay);
+  const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
+  const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
   return (
     <div
@@ -24,6 +31,7 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
       className={`
         relative min-w-[140px] cursor-pointer transition-all duration-200 shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-purple-400 ring-offset-1 ring-offset-background' : ''}
+        ${coverageBorderClass(coverageStatus, coverageEnabled)}
       `}
     >
       {nodeData.has_breakpoint && (
@@ -52,6 +60,14 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
           <span className="text-[10px] text-white/20 font-mono">L{nodeData.source_start ?? '?'}</span>
         </div>
       </div>
+      {patternStyle && (
+        <span className="absolute inset-0 pointer-events-none opacity-40 rounded-lg" style={patternStyle} />
+      )}
+      {coverageLabel && (
+        <span className="absolute left-2 top-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/45 text-cyan-100/90 border border-white/15 z-20">
+          {coverageLabel}
+        </span>
+      )}
 
       <Handle type="target" position={Position.Top} className="!bg-purple-400/60 !w-2 !h-2" />
       <Handle type="source" position={Position.Bottom} className="!bg-purple-400/60 !w-2 !h-2" />

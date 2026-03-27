@@ -12,17 +12,18 @@ import { useExecutionAPI } from '../hooks/useExecutionAPI';
 import FlowchartCanvas from '../components/canvas/FlowchartCanvas';
 import IRDebugPanel from '../components/canvas/IRDebugPanel';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
+import LanguageSelector from '../components/editor/LanguageSelector';
 import DependencyGraph from '../components/dependency/DependencyGraph';
 import ExecutionVisualizer from '../components/execution/ExecutionVisualizer';
+import CoverageWorkspace from '../components/coverage/CoverageWorkspace';
 import { Button } from '../components/ui/Button';
 
 export default function Dashboard() {
   const {
-    language,
-    setLanguage,
     isLoadingFlowchart,
     isLoadingExecution,
     isLoadingDependency,
+    isLoadingCoverage,
     dependencyData,
     setSelectedNodeId,
   } = useStore();
@@ -33,6 +34,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('flowchart');
   const isLoading = activeTab === 'dependency'
     ? isLoadingDependency
+    : activeTab === 'coverage'
+      ? isLoadingCoverage
     : activeTab === 'execution'
       ? isLoadingExecution
       : isLoadingFlowchart;
@@ -84,17 +87,8 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value as typeof language)}
-              className="bg-slate-900 border border-white/10 rounded-md px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-            >
-              <option value="python">Python</option>
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="java">Java</option>
-            </select>
+            <div className="flex items-center gap-3">
+            <LanguageSelector />
             <Button
               size="sm"
               variant="primary"
@@ -124,7 +118,7 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col min-w-0 bg-slate-950/10">
             <div className="flex items-center justify-between p-2 bg-slate-950/40 border-b border-white/5">
               <div className="flex gap-2">
-                {['flowchart', 'execution', 'dependency'].map(tab => (
+                {['flowchart', 'execution', 'dependency', 'coverage'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -166,6 +160,9 @@ export default function Dashboard() {
                         setActiveTab('flowchart');
                       }}
                     />
+                  )}
+                  {activeTab === 'coverage' && (
+                    <CoverageWorkspace />
                   )}
                 </motion.div>
               </AnimatePresence>

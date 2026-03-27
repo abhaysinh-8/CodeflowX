@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Handle, Position,  } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react';
 import { useStore } from '../../store/useStore';
+import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCoverageStatus } from './coverageStyles';
 
 export interface DecisionNodeData extends Record<string, unknown> {
   label: string;
@@ -10,11 +11,17 @@ export interface DecisionNodeData extends Record<string, unknown> {
   source_end?: number;
   is_active?: boolean;
   has_breakpoint?: boolean;
+  coverage_status?: string;
+  coverage_overlay?: boolean;
 }
 
 const DecisionNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as DecisionNodeData;
   const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
+  const coverageEnabled = Boolean(nodeData.coverage_overlay);
+  const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
+  const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
   const handleClick = () => setSelectedNodeId(id);
 
@@ -26,6 +33,7 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
       className={`
         relative flex items-center justify-center transition-all duration-200 cursor-pointer
         ${nodeData.is_active ? 'drop-shadow-[0_0_12px_rgba(234,179,8,0.8)]' : ''}
+        ${coverageBorderClass(coverageStatus, coverageEnabled)}
       `}
       style={{ width: 120, height: 80 }}
     >
@@ -44,6 +52,14 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
       <span className="relative z-10 text-[11px] font-bold text-yellow-200 text-center px-2 leading-tight max-w-[100px] truncate">
         {nodeData.label}
       </span>
+      {patternStyle && (
+        <span className="absolute inset-0 pointer-events-none opacity-40 rounded-md" style={patternStyle} />
+      )}
+      {coverageLabel && (
+        <span className="absolute left-1 top-1 text-[8px] font-bold px-1 py-0.5 rounded bg-black/45 text-cyan-100/90 border border-white/15 z-20">
+          {coverageLabel}
+        </span>
+      )}
 
       {/* True / False labels */}
       <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] text-green-400/80 font-bold">T</span>

@@ -16,13 +16,20 @@ vi.mock('@xyflow/react', () => ({
   addEdge: vi.fn(),
 }));
 vi.mock('../../nodes', () => ({ nodeTypes: {} }));
+vi.mock('../../../hooks/useFlowchartAPI', () => ({
+  useFlowchartAPI: () => ({ analyze: vi.fn(), isLoading: false }),
+}));
 
 const mockSetFlowchartError = vi.fn();
 let mockState = {
   flowchartData: null as null | { nodes: unknown[]; edges: unknown[] },
   isLoadingFlowchart: false,
+  flowchartProgress: 0,
   flowchartError: null as string | null,
   setSelectedNodeId: vi.fn(),
+  coverageData: null as null | { node_coverage_map?: Record<string, unknown> },
+  coverageOverlayEnabled: false,
+  coverageFilter: 'all',
 };
 
 vi.mock('../../../store/useStore', () => {
@@ -42,8 +49,12 @@ describe('FlowchartCanvas', () => {
     mockState = {
       flowchartData: null,
       isLoadingFlowchart: false,
+      flowchartProgress: 0,
       flowchartError: null,
       setSelectedNodeId: vi.fn(),
+      coverageData: null,
+      coverageOverlayEnabled: false,
+      coverageFilter: 'all',
     };
     mockSetFlowchartError.mockClear();
   });

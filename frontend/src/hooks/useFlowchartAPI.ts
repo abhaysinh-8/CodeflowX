@@ -54,7 +54,17 @@ async function fetchToken(): Promise<string | null> {
 }
 
 export function useFlowchartAPI() {
-  const { code, language, setFlowchartData, setLoadingFlowchart, setFlowchartError, setIrNodes, setSyntaxErrorLine } = useStore();
+  const {
+    code,
+    language,
+    setFlowchartData,
+    setLoadingFlowchart,
+    setFlowchartError,
+    setIrNodes,
+    setSyntaxErrorLine,
+    setFlowchartProgress,
+    clearCoverage,
+  } = useStore();
   const [isLoading, setIsLoading] = useState(false);
   const tokenRef = useRef<string | null>(null);
 
@@ -77,7 +87,16 @@ export function useFlowchartAPI() {
 
     setIsLoading(true);
     setLoadingFlowchart(true);
+    setFlowchartProgress(8);
     setFlowchartError(null);
+    clearCoverage();
+
+    const progressTimer = window.setInterval(() => {
+      const current = useStore.getState().flowchartProgress;
+      if (current < 92) {
+        setFlowchartProgress(current + Math.max(1, Math.round((92 - current) / 6)));
+      }
+    }, 120);
 
     try {
       const res = await fetch(`${API_BASE}/api/v1/flowchart`, {
@@ -130,6 +149,7 @@ export function useFlowchartAPI() {
 
       setFlowchartData({ nodes, edges });
       setIrNodes(data.ir ? [data.ir] : []);
+      setFlowchartProgress(100);
       toast.success('Flowchart generated successfully!');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Network error. Is the backend running?';
@@ -138,10 +158,22 @@ export function useFlowchartAPI() {
       setFlowchartError(msg);
       toast.error(msg);
     } finally {
+      window.clearInterval(progressTimer);
       setIsLoading(false);
       setLoadingFlowchart(false);
+      window.setTimeout(() => setFlowchartProgress(0), 260);
     }
-  }, [code, language, setFlowchartData, setFlowchartError, setIrNodes, setLoadingFlowchart, setSyntaxErrorLine]);
+  }, [
+    clearCoverage,
+    code,
+    language,
+    setFlowchartData,
+    setFlowchartError,
+    setFlowchartProgress,
+    setIrNodes,
+    setLoadingFlowchart,
+    setSyntaxErrorLine,
+  ]);
 
   return { analyze, isLoading };
 }

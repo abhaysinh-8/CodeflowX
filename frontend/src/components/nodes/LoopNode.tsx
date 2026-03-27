@@ -3,6 +3,7 @@ import { Handle, Position,  } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react';
 import { useStore } from '../../store/useStore';
 import { RefreshCw } from 'lucide-react';
+import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCoverageStatus } from './coverageStyles';
 
 export interface LoopNodeData extends Record<string, unknown> {
   label: string;
@@ -11,11 +12,17 @@ export interface LoopNodeData extends Record<string, unknown> {
   source_end?: number;
   is_active?: boolean;
   has_breakpoint?: boolean;
+  coverage_status?: string;
+  coverage_overlay?: boolean;
 }
 
 const LoopNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as LoopNodeData;
   const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
+  const coverageEnabled = Boolean(nodeData.coverage_overlay);
+  const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
+  const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
   return (
     <div
@@ -26,6 +33,7 @@ const LoopNode = ({ id, data, selected }: NodeProps) => {
         relative min-w-[140px] rounded-xl border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-green-400 ring-offset-1 ring-offset-background' : ''}
         ${selected ? 'border-green-400/80 shadow-green-500/30 shadow-xl' : 'border-green-500/30'}
+        ${coverageBorderClass(coverageStatus, coverageEnabled)}
         bg-[#0a1f12]/90
       `}
     >
@@ -50,6 +58,14 @@ const LoopNode = ({ id, data, selected }: NodeProps) => {
           L{nodeData.source_start ?? '?'}–{nodeData.source_end ?? '?'}
         </div>
       </div>
+      {patternStyle && (
+        <span className="absolute inset-0 pointer-events-none opacity-40 rounded-xl" style={patternStyle} />
+      )}
+      {coverageLabel && (
+        <span className="absolute left-2 top-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/45 text-cyan-100/90 border border-white/15">
+          {coverageLabel}
+        </span>
+      )}
 
       <Handle type="target" position={Position.Top} className="!bg-green-400/60 !w-2 !h-2" />
       {/* Normal exit */}

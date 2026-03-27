@@ -33,7 +33,7 @@ import { nodeTypes } from '../nodes';
 import type { ExecutionVariableState } from '../../types/execution';
 
 interface ExecutionVisualizerProps {
-  runExecution: () => Promise<void>;
+  runExecution: (conditionalBreakpoints?: Record<string, string>) => Promise<void>;
   play: () => void;
   pause: () => void;
   jumpToStep: (stepIndex: number) => void;
@@ -399,11 +399,11 @@ export default function ExecutionVisualizer({
               >
                 <ChevronsRight className="w-3.5 h-3.5" />
               </button>
-              <button
-                onClick={runExecution}
-                className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-100 hover:bg-emerald-500/30"
-                title="Rebuild execution steps"
-              >
+                <button
+                  onClick={() => runExecution(conditionalBreakpoints)}
+                  className="px-2 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-100 hover:bg-emerald-500/30"
+                  title="Rebuild execution steps"
+                >
                 Run
               </button>
             </div>

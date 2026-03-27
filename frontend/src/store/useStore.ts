@@ -3,6 +3,8 @@ import type { Node, Edge } from '@xyflow/react';
 import type { BreakpointHit, ExecutionStep } from '../types/execution';
 
 export type Language = 'python' | 'javascript' | 'typescript' | 'java';
+export type CoverageStatus = 'fully_covered' | 'partially_covered' | 'uncovered' | 'dead';
+export type CoverageFilter = 'all' | 'covered' | 'partial' | 'uncovered' | 'dead';
 
 interface FlowchartData {
   nodes: Node[];
@@ -48,6 +50,34 @@ interface IRNode {
   metadata: Record<string, unknown>;
 }
 
+interface CoverageNodeRecord {
+  coverage_status: CoverageStatus;
+  hits: number;
+  hit_lines: number;
+  total_lines: number;
+  branch_covered: number;
+  branch_total: number;
+  dead: boolean;
+}
+
+interface CoverageSummary {
+  total_nodes: number;
+  covered: number;
+  partial: number;
+  uncovered: number;
+  dead: number;
+  coverage_percent: number;
+}
+
+interface CoverageData {
+  format: string;
+  node_coverage_map: Record<string, CoverageNodeRecord>;
+  summary: CoverageSummary;
+  report_json: Record<string, unknown>;
+  file_name?: string;
+  file_size?: number;
+}
+
 interface AppState {
   // Editor
   code: string;
@@ -62,9 +92,11 @@ interface AppState {
   // Flowchart
   flowchartData: FlowchartData | null;
   isLoadingFlowchart: boolean;
+  flowchartProgress: number;
   flowchartError: string | null;
   setFlowchartData: (data: FlowchartData | null) => void;
   setLoadingFlowchart: (loading: boolean) => void;
+  setFlowchartProgress: (progress: number) => void;
   setFlowchartError: (err: string | null) => void;
 
   // IR Debug
@@ -104,9 +136,18 @@ interface AppState {
   setBreakpointHits: (hits: BreakpointHit[]) => void;
   togglePinnedVariable: (name: string) => void;
 
-  // Coverage (Phase 4 placeholder)
-  coverageData: Record<string, unknown>;
-  setCoverageData: (data: Record<string, unknown>) => void;
+  // Coverage (Phase 4)
+  coverageData: CoverageData | null;
+  isLoadingCoverage: boolean;
+  coverageError: string | null;
+  coverageOverlayEnabled: boolean;
+  coverageFilter: CoverageFilter;
+  setCoverageData: (data: CoverageData | null) => void;
+  setLoadingCoverage: (loading: boolean) => void;
+  setCoverageError: (error: string | null) => void;
+  setCoverageOverlayEnabled: (enabled: boolean) => void;
+  setCoverageFilter: (filter: CoverageFilter) => void;
+  clearCoverage: () => void;
 
   // Dependency graph (Phase 3)
   dependencyData: DependencyData | null;
@@ -133,9 +174,11 @@ export const useStore = create<AppState>((set) => ({
   // Flowchart
   flowchartData: null,
   isLoadingFlowchart: false,
+  flowchartProgress: 0,
   flowchartError: null,
   setFlowchartData: (flowchartData) => set({ flowchartData }),
   setLoadingFlowchart: (isLoadingFlowchart) => set({ isLoadingFlowchart }),
+  setFlowchartProgress: (flowchartProgress) => set({ flowchartProgress: Math.max(0, Math.min(100, flowchartProgress)) }),
   setFlowchartError: (flowchartError) => set({ flowchartError }),
 
   // IR Debug
@@ -217,8 +260,23 @@ export const useStore = create<AppState>((set) => ({
   }),
 
   // Coverage
-  coverageData: {},
+  coverageData: null,
+  isLoadingCoverage: false,
+  coverageError: null,
+  coverageOverlayEnabled: false,
+  coverageFilter: 'all',
   setCoverageData: (coverageData) => set({ coverageData }),
+  setLoadingCoverage: (isLoadingCoverage) => set({ isLoadingCoverage }),
+  setCoverageError: (coverageError) => set({ coverageError }),
+  setCoverageOverlayEnabled: (coverageOverlayEnabled) => set({ coverageOverlayEnabled }),
+  setCoverageFilter: (coverageFilter) => set({ coverageFilter }),
+  clearCoverage: () => set({
+    coverageData: null,
+    coverageError: null,
+    isLoadingCoverage: false,
+    coverageOverlayEnabled: false,
+    coverageFilter: 'all',
+  }),
 
   // Dependency graph
   dependencyData: null,

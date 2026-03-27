@@ -1,4 +1,15 @@
-from fastapi import FastAPI, HTTPException, Security, Depends, Request, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Depends,
+    Request,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    UploadFile,
+    File,
+    Form,
+)
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import uvicorn
@@ -10,6 +21,7 @@ import asyncio
 import uuid as _uuid
 import hashlib
 import time
+import json
 
 import sys
 import os
@@ -21,7 +33,12 @@ from backend.parsers.grammar_loader import GrammarLoader, is_language_supported,
 from backend.ir.transformer import ASTTransformer
 from backend.modules.flowchart import FlowchartModule
 from backend.modules.dependency import DependencyModule, rank_dependency_nodes, build_subgraph
-from backend.modules.execution import ExecutionInterpreter, ExecutionJobStore, ir_from_dict, stream_job_steps, celery_enabled
+from backend.modules.execution import (
+    ExecutionJobStore,
+    stream_job_steps,
+    run_execution_job,
+)
+from backend.modules.coverage import parse_coverage_payload, apply_coverage_to_flowchart
 from backend.api.auth import get_current_user, create_access_token
 
 limiter = Limiter(key_func=get_remote_address)
@@ -49,6 +66,7 @@ class DependencyRequest(CodeParseRequest):
 class ExecutionRequest(BaseModel):
     ir: Dict[str, Any]
     breakpoint_node_ids: List[str] = []
+    conditional_breakpoints: Dict[str, str] = {}
     step_limit: Optional[int] = None
     code: str = ""
     language: Optional[str] = None
@@ -57,6 +75,39 @@ class ExecutionRequest(BaseModel):
 
 DEPENDENCY_GRAPH_CACHE: Dict[str, Dict[str, Any]] = {}
 EXECUTION_JOB_STORE = ExecutionJobStore()
+ANALYZE_RESULT_CACHE: Dict[str, Dict[str, Any]] = {}
+COVERAGE_RESULT_CACHE: Dict[str, Dict[str, Any]] = {}
+COVERAGE_CACHE_TTL_SECONDS = 1800
+
+
+def _find_syntax_issue(node) -> Optional[Dict[str, int]]:
+    """
+    Find first concrete syntax issue in a tree-sitter node tree.
+
+    We treat explicit ERROR nodes and missing nodes as syntax failures.
+    """
+    stack = [node]
+    while stack:
+        current = stack.pop(0)
+        is_missing = bool(getattr(current, "is_missing", False))
+        if current.type == "ERROR" or is_missing:
+            return {
+                "line": current.start_point[0] + 1,
+                "column": current.start_point[1] + 1,
+            }
+        stack.extend(list(current.children))
+    return None
+
+
+def _cleanup_coverage_cache() -> None:
+    now_ms = int(time.time() * 1000)
+    stale_keys = [
+        key
+        for key, payload in COVERAGE_RESULT_CACHE.items()
+        if int(payload.get("expires_at", 0)) <= now_ms
+    ]
+    for key in stale_keys:
+        COVERAGE_RESULT_CACHE.pop(key, None)
 
 # ---------------------------------------------------------------------------
 # Helper — run flowchart pipeline (shared by sync + async endpoints)
@@ -73,18 +124,11 @@ def _run_flowchart_pipeline(code: str, language: str) -> Dict[str, Any]:
             "column": 0,
         }
 
-    # 2. Detect syntax errors via tree-sitter ERROR nodes
-    def _find_error(node) -> Optional[Dict]:
-        if node.type == "ERROR":
-            return {"line": node.start_point[0] + 1, "column": node.start_point[1] + 1}
-        for child in node.children:
-            result = _find_error(child)
-            if result:
-                return result
-        return None
-
-    syntax_error = _find_error(tree.root_node)
-    if syntax_error:
+    # 2. Detect syntax errors (ERROR or missing nodes)
+    syntax_error = _find_syntax_issue(tree.root_node)
+    if syntax_error or bool(getattr(tree.root_node, "has_error", False)):
+        if not syntax_error:
+            syntax_error = {"line": 1, "column": 1}
         return {
             "status": "error",
             "error": f"Syntax error at line {syntax_error['line']}, column {syntax_error['column']}",
@@ -133,17 +177,10 @@ def _run_dependency_pipeline(code: str, language: str, module_path: str = "main"
             "column": 0,
         }
 
-    def _find_error(node) -> Optional[Dict[str, int]]:
-        if node.type == "ERROR":
-            return {"line": node.start_point[0] + 1, "column": node.start_point[1] + 1}
-        for child in node.children:
-            result = _find_error(child)
-            if result:
-                return result
-        return None
-
-    syntax_error = _find_error(tree.root_node)
-    if syntax_error:
+    syntax_error = _find_syntax_issue(tree.root_node)
+    if syntax_error or bool(getattr(tree.root_node, "has_error", False)):
+        if not syntax_error:
+            syntax_error = {"line": 1, "column": 1}
         return {
             "status": "error",
             "error": f"Syntax error at line {syntax_error['line']}, column {syntax_error['column']}",
@@ -180,15 +217,17 @@ def _run_execution_pipeline(
     code: str = "",
     file: str = "main",
     step_limit: int | None = None,
-) -> List[Dict[str, Any]]:
-    ir_root = ir_from_dict(ir_data)
-    interpreter = ExecutionInterpreter(
-        ir_root=ir_root,
-        source_code=code,
+) -> Dict[str, Any]:
+    steps, worker = run_execution_job(
+        ir_data=ir_data,
+        code=code,
         file=file,
         step_limit=step_limit,
     )
-    return [step.model_dump() for step in interpreter.generate_steps()]
+    return {
+        "steps": steps,
+        "worker": worker,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +296,10 @@ async def analyze_full(request: Request, body: CodeParseRequest, user: dict = De
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _run_flowchart_pipeline, body.code, body.language)
         result["job_id"] = job_id
+        ANALYZE_RESULT_CACHE[job_id] = {
+            "created_at": int(time.time() * 1000),
+            "result": result,
+        }
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -286,7 +329,7 @@ async def run_execution_simulation(
     job_id = str(_uuid.uuid4())
     try:
         loop = asyncio.get_event_loop()
-        steps = await loop.run_in_executor(
+        execution_result = await loop.run_in_executor(
             None,
             _run_execution_pipeline,
             body.ir,
@@ -297,11 +340,19 @@ async def run_execution_simulation(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+    steps = execution_result.get("steps", [])
+    worker = str(execution_result.get("worker", "local"))
+
     payload: Dict[str, Any] = {
         "job_id": job_id,
         "status": "ready",
         "created_at": int(time.time() * 1000),
         "breakpoint_node_ids": sorted(set(body.breakpoint_node_ids or [])),
+        "conditional_breakpoints": {
+            str(node_id): str(expr)
+            for node_id, expr in (body.conditional_breakpoints or {}).items()
+            if str(node_id)
+        },
         "breakpoint_hits": [],
         "steps": steps,
     }
@@ -311,8 +362,9 @@ async def run_execution_simulation(
         "status": "success",
         "job_id": job_id,
         "total_steps": len(steps),
-        "execution_worker": "celery" if celery_enabled() else "local",
+        "execution_worker": worker,
         "breakpoint_node_ids": payload["breakpoint_node_ids"],
+        "conditional_breakpoints": payload["conditional_breakpoints"],
         "steps": steps,
     }
 
@@ -329,6 +381,7 @@ async def get_execution_job(job_id: str, user: dict = Depends(get_current_user))
         "execution_status": job.get("status", "ready"),
         "total_steps": len(job.get("steps", [])),
         "breakpoint_node_ids": job.get("breakpoint_node_ids", []),
+        "conditional_breakpoints": job.get("conditional_breakpoints", {}),
         "breakpoint_hits": job.get("breakpoint_hits", []),
     }
 
@@ -366,6 +419,7 @@ async def get_execution_breakpoints(job_id: str, user: dict = Depends(get_curren
         "status": "success",
         "job_id": job_id,
         "breakpoint_node_ids": job.get("breakpoint_node_ids", []),
+        "conditional_breakpoints": job.get("conditional_breakpoints", {}),
         "hits": job.get("breakpoint_hits", []),
     }
 
@@ -411,6 +465,126 @@ async def execution_stream(job_id: str, websocket: WebSocket):
             await websocket.close(code=1011)
         except Exception:
             pass
+
+
+@app.websocket("/ws/execution/{job_id}")
+async def execution_stream_compat(job_id: str, websocket: WebSocket):
+    """
+    Compatibility route matching the FullSplit contract.
+    """
+    await execution_stream(job_id, websocket)
+
+
+@app.post("/api/v1/coverage")
+@limiter.limit("20/minute")
+async def import_coverage_report(
+    request: Request,
+    file: UploadFile = File(...),
+    job_id: Optional[str] = Form(None),
+    flowchart_json: Optional[str] = Form(None),
+    code: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
+    user: dict = Depends(get_current_user),
+):
+    """
+    Import coverage report and merge coverage status into flowchart nodes.
+
+    Accepted formats:
+    - coverage.xml (pytest-cov / Cobertura)
+    - lcov.info (Istanbul/gcov style)
+    - jacoco.xml
+    - CodeFlowX native JSON (line_hits/node_hits/steps)
+    """
+    _cleanup_coverage_cache()
+
+    if not file:
+        raise HTTPException(status_code=400, detail="Coverage file is required")
+
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Coverage file is empty")
+
+    flow_nodes: List[Dict[str, Any]] = []
+    flow_edges: List[Dict[str, Any]] = []
+
+    if flowchart_json:
+        try:
+            parsed_flow = json.loads(flowchart_json)
+            flow_nodes = parsed_flow.get("nodes", []) if isinstance(parsed_flow, dict) else []
+            flow_edges = parsed_flow.get("edges", []) if isinstance(parsed_flow, dict) else []
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid flowchart_json payload: {exc}")
+    elif job_id:
+        cached = ANALYZE_RESULT_CACHE.get(job_id)
+        if not cached:
+            raise HTTPException(status_code=404, detail="Unknown job_id. Run /api/v1/analyze first or send flowchart_json.")
+        result = cached.get("result", {})
+        if isinstance(result, dict):
+            flow_nodes = result.get("nodes", [])
+            flow_edges = result.get("edges", [])
+    elif code and language:
+        if not is_language_supported(language):
+            raise HTTPException(status_code=400, detail=f"Language '{language}' is not supported.")
+        generated = _run_flowchart_pipeline(code, language)
+        if generated.get("status") == "error":
+            return generated
+        flow_nodes = generated.get("nodes", [])
+        flow_edges = generated.get("edges", [])
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide one of: flowchart_json, job_id, or (code + language).",
+        )
+
+    if not isinstance(flow_nodes, list) or not isinstance(flow_edges, list) or not flow_nodes:
+        raise HTTPException(status_code=400, detail="Flowchart context is missing nodes/edges.")
+
+    cache_key = hashlib.sha1(
+        f"{job_id or ''}:{file.filename or 'coverage'}:{len(raw_bytes)}:{hashlib.md5(raw_bytes).hexdigest()}".encode("utf8")
+    ).hexdigest()
+    cached_result = COVERAGE_RESULT_CACHE.get(cache_key)
+    if cached_result and int(cached_result.get("expires_at", 0)) > int(time.time() * 1000):
+        return cached_result.get("response", {})
+
+    try:
+        parsed = parse_coverage_payload(file.filename or "coverage.dat", raw_bytes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{exc} Example files: coverage.xml, lcov.info, jacoco.xml, codeflowx-native.json",
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to parse coverage file: {exc}")
+
+    merged = apply_coverage_to_flowchart(
+        nodes=flow_nodes,
+        edges=flow_edges,
+        parsed=parsed,
+    )
+
+    format_label_map = {
+        "pytest-cov": "pytest-cov",
+        "istanbul": "Istanbul",
+        "jacoco": "JaCoCo",
+        "native": "Native",
+    }
+    response_payload = {
+        "status": "success",
+        "format": format_label_map.get(parsed.format, parsed.format),
+        "flowchart": {
+            "nodes": merged["nodes"],
+            "edges": merged["edges"],
+        },
+        "node_coverage_map": merged["node_coverage_map"],
+        "summary": merged["summary"],
+        "report_json": merged["report_json"],
+    }
+
+    COVERAGE_RESULT_CACHE[cache_key] = {
+        "expires_at": int(time.time() * 1000) + (COVERAGE_CACHE_TTL_SECONDS * 1000),
+        "response": response_payload,
+    }
+    return response_payload
 
 
 @app.post("/api/v1/dependency")

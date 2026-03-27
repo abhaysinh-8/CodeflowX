@@ -3,19 +3,14 @@
 CodeFlowX+ converts source code into an IR tree and interactive visualizations.
 
 - `backend/` FastAPI service (parse -> IR -> flowchart + dependency graph)
-- `frontend/` React + Vite app (editor + flowchart/dependency views)
+- `frontend/` React + Vite app (editor + flowchart/execution/dependency/coverage views)
 
 ## Feature Status
 
 - `3.1 Code-to-Flowchart`: implemented and tested
 - `3.3 Dependency Graph`: implemented and tested
-- `3.2 Execution Visualizer`: in progress
-- `3.4 Coverage Heatmap`: not implemented yet
-
-Important planning note:
-
-- `3.4` can be developed before `3.2` for XML/LCOV/JaCoCo import + IR mapping + heatmap overlay.
-- The only `3.4` item that depends on `3.2` is importing native execution-export JSON.
+- `3.2 Execution Visualizer`: implemented and tested
+- `3.4 Coverage Heatmap`: implemented and tested
 
 ## Prerequisites
 
@@ -60,8 +55,11 @@ Frontend URLs:
 2. Paste code in the editor
 3. Select language
 4. Keep `flowchart` tab active and click `Analyze` (tests feature `3.1`)
-5. Switch to `dependency` tab and click `Analyze` (tests feature `3.3`)
-6. Confirm graph renders and clicking dependency nodes can jump to flowchart
+5. Switch to `execution` tab and click `Analyze` or `Run` (tests feature `3.2`)
+6. Confirm step playback, variable watch, breakpoints, and call stack update
+7. Switch to `dependency` tab and click `Analyze` (tests feature `3.3`)
+8. Confirm graph renders and clicking dependency nodes can jump to flowchart
+9. Switch to `coverage` tab, upload a coverage file (XML/LCOV/JaCoCo/Native), and verify heatmap overlay + summary filters
 
 Notes:
 
@@ -89,7 +87,14 @@ npm run build
 - `POST /api/v1/flowchart`
 - `POST /api/v1/analyze`
 - `GET /api/v1/analyze/{job_id}`
+- `POST /api/v1/execution`
+- `GET /api/v1/execution/{job_id}`
+- `GET /api/v1/execution/{job_id}/step/{n}`
+- `GET /api/v1/execution/{job_id}/breakpoints`
+- `WS /execution/{job_id}`
+- `WS /ws/execution/{job_id}`
 - `POST /api/v1/dependency`
 - `GET /api/v1/dependency/search?q=...&graph_id=...`
 - `GET /api/v1/dependency/subgraph/{node_id}?graph_id=...&hops=...`
+- `POST /api/v1/coverage` (multipart upload: coverage file + flowchart context)
 - `GET /health`

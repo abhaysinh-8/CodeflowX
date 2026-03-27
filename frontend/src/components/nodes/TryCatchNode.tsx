@@ -3,6 +3,7 @@ import { Handle, Position,  } from '@xyflow/react'
 import type { NodeProps } from '@xyflow/react';
 import { useStore } from '../../store/useStore';
 import { AlertTriangle } from 'lucide-react';
+import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCoverageStatus } from './coverageStyles';
 
 export interface TryCatchNodeData extends Record<string, unknown> {
   label: string;
@@ -11,11 +12,17 @@ export interface TryCatchNodeData extends Record<string, unknown> {
   source_end?: number;
   is_active?: boolean;
   has_breakpoint?: boolean;
+  coverage_status?: string;
+  coverage_overlay?: boolean;
 }
 
 const TryCatchNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as TryCatchNodeData;
   const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
+  const coverageEnabled = Boolean(nodeData.coverage_overlay);
+  const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
+  const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
   return (
     <div
@@ -26,6 +33,7 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
         relative min-w-[150px] rounded-xl border-2 transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-orange-400 ring-offset-1 ring-offset-background' : ''}
         ${selected ? 'border-orange-400/80 shadow-orange-500/30 shadow-xl' : 'border-orange-500/40'}
+        ${coverageBorderClass(coverageStatus, coverageEnabled)}
         bg-[#1a0f00]/90
       `}
       style={{
@@ -47,6 +55,14 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
         )}
         <span className="text-[10px] text-white/20 font-mono">L{nodeData.source_start ?? '?'}–{nodeData.source_end ?? '?'}</span>
       </div>
+      {patternStyle && (
+        <span className="absolute inset-0 pointer-events-none opacity-40 rounded-xl" style={patternStyle} />
+      )}
+      {coverageLabel && (
+        <span className="absolute left-2 top-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/45 text-cyan-100/90 border border-white/15 z-20">
+          {coverageLabel}
+        </span>
+      )}
 
       <Handle type="target" position={Position.Top} className="!bg-orange-400/60 !w-2 !h-2" />
       {/* Normal exit */}

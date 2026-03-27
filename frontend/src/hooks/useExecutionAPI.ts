@@ -79,7 +79,7 @@ export function useExecutionAPI() {
   const connectExecutionSocket = useCallback(
     (jobId: string, stepsPerSecond: number) => {
       disconnect();
-      const ws = new WebSocket(`${WS_BASE}/execution/${jobId}?rate=${stepsPerSecond}`);
+      const ws = new WebSocket(`${WS_BASE}/ws/execution/${jobId}?rate=${stepsPerSecond}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -146,7 +146,7 @@ export function useExecutionAPI() {
     return () => disconnect();
   }, [disconnect]);
 
-  const runExecution = useCallback(async () => {
+  const runExecution = useCallback(async (conditionalBreakpoints: Record<string, string> = {}) => {
     if (!code.trim()) {
       toast.info('Please enter some code before running execution.');
       return;
@@ -178,6 +178,7 @@ export function useExecutionAPI() {
           code,
           language,
           breakpoint_node_ids: executionBreakpoints,
+          conditional_breakpoints: conditionalBreakpoints,
         }),
       });
 

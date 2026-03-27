@@ -42,4 +42,4 @@ jobs:
     - name: Type-check
       run: cd frontend && npx tsc --noEmit
     - name: Run tests
-      run: cd frontend && npm run test --if-present 2>/dev/null || echo "No test script configured — skipping"
+      run: cd frontend && npm test -- --run

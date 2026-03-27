@@ -33,6 +33,8 @@ if Celery is not None:
             backend=_celery_backend,
         )
 
+CELERY_EXECUTION_TASK_NAME = "codeflowx.execution.generate_steps"
+
 
 VariableType = Literal["int", "str", "list", "dict", "bool", "NoneType"]
 VariableScope = Literal["local", "global"]
@@ -996,6 +998,82 @@ def celery_enabled() -> bool:
     return CELERY_APP is not None
 
 
+def build_execution_steps(
+    ir_data: Dict[str, Any],
+    code: str = "",
+    file: str = "main",
+    step_limit: int | None = None,
+) -> List[Dict[str, Any]]:
+    """Convert IR payload to deterministic execution steps."""
+    ir_root = ir_from_dict(ir_data)
+    interpreter = ExecutionInterpreter(
+        ir_root=ir_root,
+        source_code=code,
+        file=file,
+        step_limit=step_limit,
+    )
+    return [step.model_dump() for step in interpreter.generate_steps()]
+
+
+if CELERY_APP is not None:
+    @CELERY_APP.task(name=CELERY_EXECUTION_TASK_NAME)  # type: ignore[misc]
+    def _celery_generate_steps_task(
+        ir_data: Dict[str, Any],
+        code: str = "",
+        file: str = "main",
+        step_limit: int | None = None,
+    ) -> List[Dict[str, Any]]:
+        return build_execution_steps(
+            ir_data=ir_data,
+            code=code,
+            file=file,
+            step_limit=step_limit,
+        )
+
+
+def run_execution_job(
+    ir_data: Dict[str, Any],
+    code: str = "",
+    file: str = "main",
+    step_limit: int | None = None,
+) -> Tuple[List[Dict[str, Any]], str]:
+    """
+    Build execution steps with optional Celery offload.
+
+    Celery is opt-in through CODEFLOWX_EXECUTION_USE_CELERY=1 so local dev/test
+    remains deterministic by default.
+    """
+    use_celery = (
+        celery_enabled()
+        and os.getenv("CODEFLOWX_EXECUTION_USE_CELERY", "0").strip() == "1"
+    )
+
+    if use_celery and CELERY_APP is not None:
+        try:
+            timeout_s = float(os.getenv("CODEFLOWX_EXECUTION_TASK_TIMEOUT", "30"))
+        except ValueError:
+            timeout_s = 30.0
+
+        try:
+            async_result = CELERY_APP.send_task(
+                CELERY_EXECUTION_TASK_NAME,
+                args=[ir_data, code, file, step_limit],
+            )
+            steps = async_result.get(timeout=timeout_s)
+            if isinstance(steps, list):
+                return steps, "celery"
+        except Exception:
+            # If broker/worker is unavailable, fail open to local execution.
+            pass
+
+    return build_execution_steps(
+        ir_data=ir_data,
+        code=code,
+        file=file,
+        step_limit=step_limit,
+    ), "local"
+
+
 class ExecutionJobStore:
     """
     Redis-backed storage with in-memory fallback.
@@ -1083,6 +1161,126 @@ class ExecutionJobStore:
             self._memory.pop(job_id, None)
 
 
+def _normalize_breakpoint_expression(expr: str) -> str:
+    normalized = expr.strip()
+    normalized = normalized.replace("===", "==").replace("!==", "!=")
+    normalized = normalized.replace("&&", " and ").replace("||", " or ")
+    normalized = re.sub(r"(?<![=!<>])!(?!=)", " not ", normalized)
+    normalized = re.sub(r"\btrue\b", "True", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bfalse\b", "False", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bnull\b", "None", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bundefined\b", "None", normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+def _safe_eval_breakpoint_ast(node: ast.AST, scope: Dict[str, Any]) -> Any:
+    if isinstance(node, ast.Constant):
+        return node.value
+
+    if isinstance(node, ast.Name):
+        return scope.get(node.id)
+
+    if isinstance(node, ast.List):
+        return [_safe_eval_breakpoint_ast(item, scope) for item in node.elts]
+
+    if isinstance(node, ast.Tuple):
+        return tuple(_safe_eval_breakpoint_ast(item, scope) for item in node.elts)
+
+    if isinstance(node, ast.Dict):
+        output: Dict[str, Any] = {}
+        for key, value in zip(node.keys, node.values):
+            key_value = _safe_eval_breakpoint_ast(key, scope) if key is not None else ""
+            output[str(key_value)] = _safe_eval_breakpoint_ast(value, scope)
+        return output
+
+    if isinstance(node, ast.UnaryOp):
+        operand = _safe_eval_breakpoint_ast(node.operand, scope)
+        if isinstance(node.op, ast.USub):
+            return -operand
+        if isinstance(node.op, ast.UAdd):
+            return +operand
+        if isinstance(node.op, ast.Not):
+            return not operand
+        raise ValueError("Unsupported unary operator")
+
+    if isinstance(node, ast.BinOp):
+        left = _safe_eval_breakpoint_ast(node.left, scope)
+        right = _safe_eval_breakpoint_ast(node.right, scope)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        if isinstance(node.op, ast.Mod):
+            return left % right
+        raise ValueError("Unsupported binary operator")
+
+    if isinstance(node, ast.BoolOp):
+        values = [_safe_eval_breakpoint_ast(item, scope) for item in node.values]
+        if isinstance(node.op, ast.And):
+            return all(bool(value) for value in values)
+        if isinstance(node.op, ast.Or):
+            return any(bool(value) for value in values)
+        raise ValueError("Unsupported boolean operator")
+
+    if isinstance(node, ast.Compare):
+        left = _safe_eval_breakpoint_ast(node.left, scope)
+        for op, comparator in zip(node.ops, node.comparators):
+            right = _safe_eval_breakpoint_ast(comparator, scope)
+            if isinstance(op, ast.Eq) and not (left == right):
+                return False
+            if isinstance(op, ast.NotEq) and not (left != right):
+                return False
+            if isinstance(op, ast.Lt) and not (left < right):
+                return False
+            if isinstance(op, ast.LtE) and not (left <= right):
+                return False
+            if isinstance(op, ast.Gt) and not (left > right):
+                return False
+            if isinstance(op, ast.GtE) and not (left >= right):
+                return False
+            left = right
+        return True
+
+    if isinstance(node, ast.Subscript):
+        value = _safe_eval_breakpoint_ast(node.value, scope)
+        index = _safe_eval_breakpoint_ast(node.slice, scope)
+        return value[index]
+
+    raise ValueError(f"Unsupported expression node: {type(node).__name__}")
+
+
+def evaluate_breakpoint_expression(expr: str, step: Dict[str, Any]) -> bool:
+    """
+    Evaluate a conditional breakpoint expression safely against step variables.
+
+    Returns False when the expression cannot be parsed/evaluated.
+    """
+    expression = _normalize_breakpoint_expression(expr)
+    if not expression:
+        return True
+
+    variables = step.get("variables", {})
+    scope: Dict[str, Any] = {}
+    if isinstance(variables, dict):
+        for key, payload in variables.items():
+            if not isinstance(payload, dict):
+                continue
+            value = payload.get("value")
+            scope[str(key)] = value
+            if str(key).startswith("global::"):
+                scope[str(key).split("::", 1)[1]] = value
+
+    try:
+        parsed = ast.parse(expression, mode="eval")
+        return bool(_safe_eval_breakpoint_ast(parsed.body, scope))
+    except Exception:
+        return False
+
+
 async def stream_job_steps(
     websocket: WebSocket,
     job: Dict[str, Any],
@@ -1104,6 +1302,11 @@ async def stream_job_steps(
     steps = job.get("steps", [])
     total_steps = len(steps)
     breakpoints = set(job.get("breakpoint_node_ids", []))
+    conditional_breakpoints = {
+        str(node_id): str(expr)
+        for node_id, expr in (job.get("conditional_breakpoints") or {}).items()
+        if str(node_id)
+    }
     rate = max(0.1, float(steps_per_second))
     index = max(0, min(start_index, max(0, total_steps - 1)))
     paused = False
@@ -1115,6 +1318,7 @@ async def stream_job_steps(
             "job_id": job.get("job_id"),
             "total_steps": total_steps,
             "breakpoint_node_ids": sorted(breakpoints),
+            "conditional_breakpoints": conditional_breakpoints,
         }
     )
 
@@ -1193,6 +1397,15 @@ async def stream_job_steps(
 
         active_node_id = step.get("active_node_id")
         if active_node_id in breakpoints:
+            condition_expr = conditional_breakpoints.get(str(active_node_id), "").strip()
+            condition_ok = evaluate_breakpoint_expression(condition_expr, step)
+            if condition_expr and not condition_ok:
+                index += 1
+                incoming = await _recv(timeout=1.0 / rate)
+                if incoming:
+                    await _handle_command(incoming)
+                continue
+
             hit = BreakpointHit(
                 node_id=active_node_id,
                 step_id=int(step.get("step_id", index + 1)),
@@ -1205,6 +1418,7 @@ async def stream_job_steps(
                     "event": "PAUSED",
                     "reason": "breakpoint",
                     "node_id": active_node_id,
+                    "condition": condition_expr,
                     "step_index": index + 1,
                     "step": step,
                 }

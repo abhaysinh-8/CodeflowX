@@ -126,3 +126,46 @@ x = x + 1
     bp_data = bp_res.json()
     assert bp_data["status"] == "success"
     assert any(hit["node_id"] == first_node for hit in bp_data["hits"])
+
+
+def test_execution_conditional_breakpoint_only_pauses_when_expression_matches():
+    headers = _auth_headers()
+    code = """
+x = 1
+x = x + 1
+"""
+    ir_payload = _build_ir_payload(code)
+
+    bootstrap = client.post(
+        "/api/v1/execution",
+        headers=headers,
+        json={"ir": ir_payload, "code": code, "breakpoint_node_ids": []},
+    ).json()
+    first_node = bootstrap["steps"][0]["active_node_id"]
+
+    run_res = client.post(
+        "/api/v1/execution",
+        headers=headers,
+        json={
+            "ir": ir_payload,
+            "code": code,
+            "breakpoint_node_ids": [first_node],
+            "conditional_breakpoints": {
+                first_node: "x == 999",
+            },
+        },
+    )
+    assert run_res.status_code == 200
+    job_id = run_res.json()["job_id"]
+
+    paused_received = False
+    with client.websocket_connect(f"/ws/execution/{job_id}?rate=100") as ws:
+        for _ in range(12):
+            event = ws.receive_json()
+            if event.get("event") == "PAUSED":
+                paused_received = True
+                break
+            if event.get("event") == "COMPLETED":
+                break
+
+    assert paused_received is False, "Breakpoint should not pause when condition evaluates false"
