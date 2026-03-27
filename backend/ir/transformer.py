@@ -29,8 +29,11 @@ class ASTTransformer:
         ir_node = self._visit(node)
         return ir_node
 
-    def _visit(self, node: Any) -> IRNode:
+    def _visit(self, node: Any) -> Optional[IRNode]:
         """Recursive visitor function."""
+        if not node.is_named and node.type not in ("{", "}", "(", ")", "[", "]", ";"):
+             return None
+
         node_type = self._map_type(node.type)
         node_name = self._extract_name(node)
         
@@ -48,7 +51,7 @@ class ASTTransformer:
         # Visit children
         for i in range(node.child_count):
             child = node.child(i)
-            # Filter out tokens like punctuation unless they are meaningful
+            # Filter out non-named nodes generally, but keep them for structure if needed
             if not child.is_named:
                 continue
             
@@ -59,7 +62,7 @@ class ASTTransformer:
         return ir_node
 
     def _map_type(self, ts_type: str) -> IRNodeType:
-        """Maps tree-sitter types to IRNodeTypes."""
+        """Maps tree-sitter types to IRNodeTypes across Python, JS, Java."""
         mapping = {
             # Python
             "function_definition": IRNodeType.FUNCTION_DEF,
@@ -71,36 +74,45 @@ class ASTTransformer:
             "try_statement": IRNodeType.TRY_EXCEPT,
             "class_definition": IRNodeType.CLASS_DEF,
             "assignment": IRNodeType.ASSIGNMENT,
-            "expression_statement": IRNodeType.OTHER, # Might contain assignment
+            "expression_statement": IRNodeType.OTHER,
             
             # JavaScript
             "function_declaration": IRNodeType.FUNCTION_DEF,
             "lexical_declaration": IRNodeType.ASSIGNMENT,
             "variable_declaration": IRNodeType.ASSIGNMENT,
+            "call_expression": IRNodeType.CALL,
+            "class_declaration": IRNodeType.CLASS_DEF,
+            
+            # Java
+            "method_declaration": IRNodeType.FUNCTION_DEF,
+            "constructor_declaration": IRNodeType.FUNCTION_DEF,
+            "variable_declarator": IRNodeType.ASSIGNMENT,
+            "method_invocation": IRNodeType.CALL,
+            "class_declaration": IRNodeType.CLASS_DEF,
+            "interface_declaration": IRNodeType.CLASS_DEF,
+            
+            # Common
             "if_statement": IRNodeType.IF_STMT,
             "for_statement": IRNodeType.FOR_LOOP,
             "while_statement": IRNodeType.WHILE_LOOP,
-            "return_statement": IRNodeType.RETURN,
-            "call_expression": IRNodeType.CALL,
             "try_statement": IRNodeType.TRY_EXCEPT,
-            "class_declaration": IRNodeType.CLASS_DEF,
+            "return_statement": IRNodeType.RETURN,
+            "block": IRNodeType.BLOCK,
         }
         return mapping.get(ts_type, IRNodeType.OTHER)
 
     def _extract_name(self, node: Any) -> str:
-        """Heuristically extracts a 'name' for the node (e.g., function name)."""
-        if node.type in ("function_definition", "function_declaration", "class_definition", "class_declaration"):
-            # Usually the identifier child
+        """Heuristically extracts a 'name' for the node."""
+        if node.type in ("function_definition", "function_declaration", "class_definition", "class_declaration", "method_declaration"):
             for i in range(node.child_count):
                 child = node.child(i)
                 if child.type == "identifier":
                     return self.get_node_text(child)
         
-        if node.type in ("call", "call_expression"):
-            # The function being called
+        if node.type in ("call", "call_expression", "method_invocation"):
             for i in range(node.child_count):
                 child = node.child(i)
-                if child.type in ("identifier", "attribute", "member_expression"):
+                if child.type in ("identifier", "attribute", "member_expression", "field_access"):
                     return self.get_node_text(child)
                     
         return ""
