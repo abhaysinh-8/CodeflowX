@@ -1,158 +1,212 @@
-import { motion } from 'framer-motion';
-import { Layout, Zap, Share2, Search, Code2, Settings, ChevronRight, Play, Database, Shield } from 'lucide-react';
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Layout, Zap, Share2, Search, Code2, Settings, 
+  ChevronRight, Play, Database, Shield, Maximize2,
+  Loader2, AlertCircle, Sparkles, Binary
+} from 'lucide-react';
+import Editor from '@monaco-editor/react';
+import { useFlowchartStore } from '../store/useFlowchartStore';
+import { FlowchartSection } from '../modules/flowchart/FlowchartSection';
+import { IRDebugPanel } from '../modules/flowchart/IRDebugPanel';
 import { Button } from '../components/ui/Button';
 
-// Monaco Editor Mock (since we can't easily install full monaco in this env without more config)
-const CodeEditor = () => (
-  <div className="flex-grow glass border-white/5 rounded-2xl p-6 font-mono text-sm overflow-auto group">
-    <div className="flex justify-between items-center mb-4 text-white/20">
-      <span className="text-[10px] uppercase tracking-widest">ai-core-module.ts</span>
-      <span className="text-[10px]">TypeScript</span>
-    </div>
-    <div className="space-y-1">
-      <p><span className="text-purple-400">import</span> {'{'} analyze {'}'} <span className="text-purple-400">from</span> <span className="text-green-400">"./internal-engine"</span>;</p>
-      <p><span className="text-purple-400">export async function</span> <span className="text-blue-400">processStream</span>(input: any) {'{'}</p>
-      <p className="pl-4"><span className="text-purple-400">const</span> results = <span className="text-purple-400">await</span> analyze(input);</p>
-      <p className="pl-4"><span className="text-purple-400">if</span> (results.valid) {'{'}</p>
-      <p className="pl-8"><span className="text-purple-400">return</span> results.data.<span className="text-blue-400">map</span>(item ={'>'} item.<span className="text-blue-400">process</span>());</p>
-      <p className="pl-4">{'}'}</p>
-      <p className="pl-4"><span className="text-purple-400">throw new</span> <span className="text-yellow-400">Error</span>(<span className="text-green-400">"Invalid stream data"</span>);</p>
-      <p>{'}'}</p>
-    </div>
-    <div className="absolute bottom-6 right-6 hidden group-hover:block transition-all">
-       <Button size="sm" className="gap-2 shadow-blue-500/50 shadow-lg">
-         <Play className="w-3 h-3 fill-current" /> Run Analysis
-       </Button>
-    </div>
-  </div>
-);
-
-// Tab Content Placeholders
-const FlowchartTab = () => (
-    <div className="h-full flex flex-col items-center justify-center glass border-blue-500/30 rounded-2xl relative overflow-hidden bg-primary/5">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-500/10 via-transparent to-transparent" />
-        <div className="flex items-center gap-12 z-10">
-           <div className="w-20 h-20 rounded-2xl glass border-primary/50 flex items-center justify-center">
-             <Code2 className="w-10 h-10 text-primary" />
-           </div>
-           <div className="w-16 h-0.5 bg-gradient-to-r from-primary to-purple-500" />
-           <div className="w-24 h-24 rounded-3xl glass border-purple-500/50 flex items-center justify-center animate-glow">
-             <Zap className="w-12 h-12 text-purple-400" />
-           </div>
-        </div>
-        <p className="mt-12 text-white/40 font-mono text-xs uppercase tracking-[0.2em] z-10">Generative Flow Engine Active</p>
-    </div>
-);
-
-const ExecutionTab = () => (
-    <div className="h-full glass border-white/5 rounded-2xl p-6">
-        <h4 className="text-sm font-bold text-white mb-6 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-yellow-400" /> Step-by-Step Simulation
-        </h4>
-        <div className="space-y-4">
-            {[1, 2, 3].map(i => (
-                <div key={i} className="p-4 glass border-white/5 rounded-xl flex items-center justify-between group hover:border-white/10 transition-colors">
-                    <div className="flex items-center gap-4">
-                        <span className="text-xs text-white/20 font-mono">0{i}</span>
-                        <span className="text-sm text-white/70 font-medium">Processing entry point node_{i}...</span>
-                    </div>
-                    <div className="w-2 h-2 rounded-full bg-green-500/40 group-hover:bg-green-500 transition-colors" />
-                </div>
-            ))}
-        </div>
-    </div>
-);
-
 export default function Dashboard() {
+  const { 
+    code, language, setCode, setLanguage, 
+    setData, setLoading, setError, 
+    isLoading, error 
+  } = useFlowchartStore();
+  
   const [activeTab, setActiveTab] = useState('flowchart');
+  const [token, setToken] = useState<string | null>(null);
+
+  // Auto-login for demo purposes
+  useEffect(() => {
+    const login = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/login', { method: 'POST' });
+        const data = await res.json();
+        setToken(data.access_token);
+      } catch (err) {
+        console.error("Failed to login", err);
+      }
+    };
+    login();
+  }, []);
+
+  const handleRunAnalysis = async () => {
+    if (!token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/flowchart', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ code, language })
+      });
+      
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setData({
+          nodes: data.nodes,
+          edges: data.edges,
+          ir: data.ir
+        });
+        setActiveTab('flowchart');
+      } else {
+        setError(data.error || 'Failed to analyze code');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden text-foreground">
+    <div className="flex h-screen bg-[#020617] overflow-hidden text-slate-200 font-sans">
       {/* Sidebar */}
-      <aside className="w-20 lg:w-24 border-right border-white/5 flex flex-col items-center py-8 gap-10 glass border-r z-20">
-        <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl shadow-lg shadow-blue-500/20">
-          <Code2 className="w-8 h-8 text-white" />
+      <aside className="w-16 lg:w-20 border-r border-white/5 flex flex-col items-center py-6 gap-8 bg-slate-950/50 backdrop-blur-xl z-30">
+        <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/20">
+          <Sparkles className="w-6 h-6 text-white" />
         </div>
         
-        <nav className="flex flex-col gap-8">
-            <Layout className="w-6 h-6 text-primary cursor-pointer transition-colors" />
-            <Database className="w-6 h-6 text-white/20 hover:text-white cursor-pointer" />
-            <Share2 className="w-6 h-6 text-white/20 hover:text-white cursor-pointer" />
-            <Search className="w-6 h-6 text-white/20 hover:text-white cursor-pointer" />
-            <Shield className="w-6 h-6 text-white/20 hover:text-white cursor-pointer" />
+        <nav className="flex flex-col gap-6">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400"><Layout className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Database className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Binary className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Shield className="w-5 h-5" /></div>
         </nav>
 
-        <div className="mt-auto flex flex-col gap-8">
-            <Settings className="w-6 h-6 text-white/20 hover:text-white cursor-pointer" />
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 border border-white/20" />
+        <div className="mt-auto flex flex-col gap-6 p-4 border-t border-white/5 w-full items-center">
+            <Settings className="w-5 h-5 text-slate-500 hover:text-slate-200 cursor-pointer" />
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10" />
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-grow flex flex-col p-6 gap-6 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="flex items-center justify-between">
-           <div>
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                Project <span className="text-white/40"><ChevronRight className="w-4 h-4" /></span> AI-Core-Dist
-              </h2>
-              <p className="text-xs text-white/30 font-mono">ID: xf82-codeflow-plus</p>
-           </div>
+        <header className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-slate-950/20 backdrop-blur-md">
            <div className="flex items-center gap-4">
-              <Button size="sm" variant="glass" className="gap-2">
-                <Share2 className="w-4 h-4" /> Export
+              <h2 className="text-lg font-bold tracking-tight">CodeFlowX<span className="text-blue-500">+</span></h2>
+              <div className="h-4 w-px bg-white/10" />
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <span>main</span>
+                <ChevronRight className="w-3 h-3" />
+                <span className="text-slate-300">flow_engine.py</span>
+              </div>
+           </div>
+           
+           <div className="flex items-center gap-3">
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-slate-900 border border-white/10 rounded-md px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+              >
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+                <option value="java">Java</option>
+              </select>
+              <Button 
+                size="sm" 
+                variant="primary" 
+                onClick={handleRunAnalysis}
+                disabled={isLoading}
+                className="gap-2 shadow-blue-500/10"
+              >
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                Analyze
               </Button>
-              <Button size="sm" variant="primary">Deploy v1.2</Button>
            </div>
         </header>
 
         {/* Workspace Area */}
-        <div className="flex-grow flex flex-col lg:flex-row gap-6 min-h-0">
-           {/* Code Section */}
-           <div className="w-full lg:w-1/2 flex flex-col gap-4 min-h-0">
-             <div className="flex items-center gap-6 border-b border-white/5 pb-2">
-                <span className="text-sm font-bold border-b border-primary pb-2 px-2">Editor</span>
-                <span className="text-sm text-white/20 font-medium pb-2 cursor-pointer hover:text-white/40">Terminal</span>
-                <span className="text-sm text-white/20 font-medium pb-2 cursor-pointer hover:text-white/40">History</span>
-             </div>
-             <CodeEditor />
-           </div>
-
-           {/* Visualization Section */}
-           <div className="w-full lg:w-1/2 flex flex-col gap-4 min-h-0">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                <div className="flex gap-6">
-                    <button 
-                        onClick={() => setActiveTab('flowchart')}
-                        className={`text-sm font-bold pb-2 px-2 transition-colors ${activeTab === 'flowchart' ? 'border-b border-primary text-white' : 'text-white/20'}`}
-                    >Flowchart</button>
-                    <button 
-                        onClick={() => setActiveTab('execution')}
-                        className={`text-sm font-bold pb-2 px-2 transition-colors ${activeTab === 'execution' ? 'border-b border-primary text-white' : 'text-white/20'}`}
-                    >Execution</button>
-                    <button 
-                        onClick={() => setActiveTab('dependency')}
-                        className={`text-sm font-bold pb-2 px-2 transition-colors ${activeTab === 'dependency' ? 'border-b border-primary text-white' : 'text-white/20'}`}
-                    >Dependency</button>
+        <div className="flex-1 flex min-h-0 relative">
+            {/* Editor Section */}
+            <div className="flex-1 flex flex-col min-w-0 border-r border-white/5">
+                <div className="flex items-center gap-1 p-2 bg-slate-950/40 border-b border-white/5">
+                    <div className="px-3 py-1.5 rounded-md bg-white/5 text-[10px] uppercase tracking-wider font-bold text-blue-400 border border-white/5">Editor</div>
                 </div>
-                <Button size="sm" variant="glass" className="h-7 px-2">
-                    <Maximize2 className="w-3 h-3" />
-                </Button>
-              </div>
-              
-              <div className="flex-grow min-h-0">
-                 {activeTab === 'flowchart' && <FlowchartTab />}
-                 {activeTab === 'execution' && <ExecutionTab />}
-                 {activeTab === 'dependency' && <div className="h-full glass border-white/5 rounded-2xl flex items-center justify-center italic text-white/20">Dependency Graph (BETA)</div>}
-              </div>
-           </div>
+                <div className="flex-1 overflow-hidden relative">
+                    <Editor
+                      height="100%"
+                      defaultLanguage="python"
+                      language={language}
+                      theme="vs-dark"
+                      value={code}
+                      onChange={(val) => setCode(val || '')}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        fontFamily: 'JetBrains Mono, Menlo, monospace',
+                        backgroundColor: '#020617',
+                        lineNumbersMinChars: 3,
+                        scrollBeyondLastLine: false,
+                        padding: { top: 20 },
+                      }}
+                    />
+                </div>
+            </div>
+
+            {/* Visualization Section */}
+            <div className="flex-1 flex flex-col min-w-0 bg-slate-950/10">
+                <div className="flex items-center justify-between p-2 bg-slate-950/40 border-b border-white/5">
+                    <div className="flex gap-2">
+                        {['flowchart', 'execution', 'dependency'].map(tab => (
+                            <button 
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`px-4 py-1.5 rounded-md text-[10px] uppercase tracking-widest font-bold transition-all ${activeTab === tab ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div className="flex-1 min-h-0 p-4 overflow-hidden relative">
+                    <AnimatePresence mode="wait">
+                        <motion.div 
+                            key={activeTab}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="h-full"
+                        >
+                            {activeTab === 'flowchart' && <FlowchartSection />}
+                            {activeTab === 'execution' && (
+                                <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Execution Simulation (Coming Soon)</div>
+                            )}
+                            {activeTab === 'dependency' && (
+                                <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Dependency Graph (Coming Soon)</div>
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
+
+                    {error && (
+                        <div className="absolute bottom-8 right-8 max-w-sm p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-md flex gap-3 items-start animate-in fade-in slide-in-from-bottom-4">
+                            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                            <div>
+                                <h4 className="text-sm font-bold text-red-400">Analysis Error</h4>
+                                <p className="text-xs text-red-300/70 mt-1">{error}</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* IR Debug Panel */}
+            <IRDebugPanel />
         </div>
-      </main>
+      </div>
     </div>
   );
 }
-
-const Maximize2 = ({ className }: { className?: string }) => (
-    <svg className={className} fill="none" width="24" height="24" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
-);

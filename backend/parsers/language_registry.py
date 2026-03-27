@@ -13,8 +13,9 @@ class LanguageRegistry:
         ".py": "python",
         ".js": "javascript",
         ".jsx": "javascript",
-        ".ts": "typescript", # Future expansion
+        ".ts": "typescript",
         ".tsx": "typescript",
+        ".java": "java",
     }
     
     @classmethod

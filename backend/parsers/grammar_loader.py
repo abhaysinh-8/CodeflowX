@@ -2,6 +2,7 @@ from tree_sitter import Language, Parser
 from typing import Optional, Any
 import tree_sitter_python
 import tree_sitter_javascript
+import tree_sitter_java
 
 class GrammarLoader:
     """Loader to initialize tree-sitter grammars and parse source code."""
@@ -9,6 +10,7 @@ class GrammarLoader:
     _languages = {
         "python": Language(tree_sitter_python.language()),
         "javascript": Language(tree_sitter_javascript.language()),
+        "java": Language(tree_sitter_java.language()),
     }
     
     @classmethod
@@ -29,5 +31,8 @@ class GrammarLoader:
             return None
         
         # In tree-sitter 0.22+, parse expects bytes
-        tree = parser.parse(bytes(code, "utf8"))
-        return tree
+        try:
+            tree = parser.parse(bytes(code, "utf8"))
+            return tree
+        except Exception:
+            return None
