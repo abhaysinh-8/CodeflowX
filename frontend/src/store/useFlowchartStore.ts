@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Node, Edge } from 'reactflow';
+import type { Node, Edge } from '@xyflow/react';
 
 interface IRNodeData {
   id?: string;

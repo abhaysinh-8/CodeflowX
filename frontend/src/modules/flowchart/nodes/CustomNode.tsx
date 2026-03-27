@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position } from '@xyflow/react';
 import { Terminal, Cpu, GitBranch, Package, Box } from 'lucide-react';
 
 interface NodeStyle { icon: React.ElementType; color: string; radius: string; }
