@@ -24,19 +24,15 @@ let mockState = {
   flowchartError: null as string | null,
   setSelectedNodeId: vi.fn(),
 };
-vi.mock('../../../store/useStore', () => ({
-  useStore: (selector?: (s: typeof mockState) => unknown) => {
-    if (selector) return selector({ ...mockState, setFlowchartError: mockSetFlowchartError });
-    return { ...mockState, setFlowchartError: mockSetFlowchartError };
-  },
-  // expose getState for the dismiss button
-  useStore_getState: () => ({ setFlowchartError: mockSetFlowchartError }),
-}));
 
-// Patch useStore.getState used by dismiss button
-import * as UseStoreModule from '../../../store/useStore';
-(UseStoreModule.useStore as unknown as { getState: () => { setFlowchartError: typeof mockSetFlowchartError } }).getState = () => ({
-  setFlowchartError: mockSetFlowchartError,
+vi.mock('../../../store/useStore', () => {
+  const getState = () => ({ setFlowchartError: mockSetFlowchartError });
+  const useStore = (selector?: (s: unknown) => unknown) => {
+    const state = { ...mockState, setFlowchartError: mockSetFlowchartError };
+    return selector ? selector(state) : state;
+  };
+  useStore.getState = getState;
+  return { useStore };
 });
 
 import FlowchartCanvas from '../FlowchartCanvas';

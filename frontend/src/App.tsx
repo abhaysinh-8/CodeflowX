@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './pages/Landing';
 import Dashboard from './pages/Dashboard';
+import { ToastContainer } from './components/ui/Toast';
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
           <Route path="*"          element={<Navigate to="/" replace />} />
         </Routes>
       </main>
+      <ToastContainer />
     </BrowserRouter>
   );
 }
