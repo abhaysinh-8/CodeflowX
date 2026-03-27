@@ -19,7 +19,7 @@ jobs:
       run: |
         cd backend
         python -m pip install --upgrade pip
-        pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-java pytest fastapi uvicorn slowapi PyJWT cryptography python-multipart
+        pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-java pytest fastapi uvicorn slowapi PyJWT cryptography python-multipart httpx
     - name: Run tests
       run: |
         export PYTHONPATH=$(pwd)
