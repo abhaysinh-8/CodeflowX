@@ -10,6 +10,7 @@ export interface TryCatchNodeData extends Record<string, unknown> {
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const TryCatchNode = ({ id, data, selected }: NodeProps) => {
@@ -22,7 +23,7 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
       title={`Try/Catch: ${nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Try-catch node: ${nodeData.label}`}
       className={`
-        min-w-[150px] rounded-xl border-2 transition-all duration-200 cursor-pointer shadow-lg
+        relative min-w-[150px] rounded-xl border-2 transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-orange-400 ring-offset-1 ring-offset-background' : ''}
         ${selected ? 'border-orange-400/80 shadow-orange-500/30 shadow-xl' : 'border-orange-500/40'}
         bg-[#1a0f00]/90
@@ -31,6 +32,9 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
         borderStyle: 'dashed',
       }}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)] z-20" />
+      )}
       {/* Orange header */}
       <div className="bg-orange-700/50 px-3 py-1.5 flex items-center gap-2 rounded-t-[10px]">
         <AlertTriangle className="w-3 h-3 text-orange-300" />

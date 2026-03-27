@@ -7,6 +7,7 @@ export interface TerminalNodeData extends Record<string, unknown> {
   label: string;
   terminal_type?: 'start' | 'end';
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const TerminalNode = ({ id, data, selected }: NodeProps) => {
@@ -20,7 +21,7 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
       aria-label={`${isStart ? 'Start' : 'End'} terminal node`}
       title={nodeData.label}
       className={`
-        px-6 py-2.5 rounded-full border-2 font-bold text-sm cursor-pointer
+        relative px-6 py-2.5 rounded-full border-2 font-bold text-sm cursor-pointer
         transition-all duration-200 shadow-lg min-w-[100px] text-center
         ${nodeData.is_active ? (isStart ? 'ring-2 ring-emerald-400 ring-offset-1' : 'ring-2 ring-rose-400 ring-offset-1') : ''}
         ${selected
@@ -29,6 +30,9 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
         }
       `}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]" />
+      )}
       {nodeData.label}
 
       {isStart ? (

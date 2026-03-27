@@ -9,6 +9,7 @@ export interface FunctionNodeData extends Record<string, unknown> {
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const FunctionNode = ({ id, data, selected }: NodeProps) => {
@@ -23,11 +24,14 @@ const FunctionNode = ({ id, data, selected }: NodeProps) => {
       title={`${nodeData.name || nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Function node: ${nodeData.name || nodeData.label}`}
       className={`
-        min-w-[140px] rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer shadow-lg
+        relative min-w-[140px] rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-background' : ''}
         ${selected ? 'border-blue-400/80 shadow-blue-500/30 shadow-xl' : 'border-blue-500/30'}
       `}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)]" />
+      )}
       {/* Blue header bar */}
       <div className="bg-blue-600/80 px-3 py-1.5 flex items-center gap-2">
         <span className="text-[9px] font-bold uppercase tracking-widest text-blue-100/70">fn</span>
