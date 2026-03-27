@@ -9,6 +9,7 @@ export interface CallNodeData extends Record<string, unknown> {
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
+  has_breakpoint?: boolean;
 }
 
 const CallNode = ({ id, data, selected }: NodeProps) => {
@@ -21,10 +22,13 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
       title={`Calls: ${nodeData.callee || nodeData.label} — Line ${nodeData.source_start ?? '?'}`}
       aria-label={`Function call node: ${nodeData.label}`}
       className={`
-        min-w-[140px] cursor-pointer transition-all duration-200 shadow-lg
+        relative min-w-[140px] cursor-pointer transition-all duration-200 shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-purple-400 ring-offset-1 ring-offset-background' : ''}
       `}
     >
+      {nodeData.has_breakpoint && (
+        <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-rose-500 border border-rose-200 shadow-[0_0_0_2px_rgba(15,23,42,0.9)] z-20" />
+      )}
       {/* Outer double-border subprocess box */}
       <div
         className={`
