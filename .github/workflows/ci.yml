@@ -22,9 +22,8 @@ jobs:
         pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-java pytest fastapi uvicorn slowapi PyJWT cryptography python-multipart
     - name: Run tests
       run: |
-        cd backend
-        export PYTHONPATH=$PYTHONPATH:.
-        pytest tests/
+        export PYTHONPATH=$(pwd)
+        pytest backend/tests/
 
   test-frontend:
     runs-on: ubuntu-latest
