@@ -28,7 +28,7 @@ async function fetchToken(): Promise<string | null> {
 }
 
 export function useFlowchartAPI() {
-  const { code, language, setFlowchartData, setLoadingFlowchart, setFlowchartError, setIrNodes } = useStore();
+  const { code, language, setFlowchartData, setLoadingFlowchart, setFlowchartError, setIrNodes, setSyntaxErrorLine } = useStore();
   const [isLoading, setIsLoading] = useState(false);
   const tokenRef = useRef<string | null>(null);
 
@@ -42,6 +42,7 @@ export function useFlowchartAPI() {
       toast.info('Please enter some code to analyze.');
       return;
     }
+    setSyntaxErrorLine(null);
 
     // Ensure we have a token
     if (!tokenRef.current) {
@@ -77,8 +78,13 @@ export function useFlowchartAPI() {
           ? `Syntax error at line ${data.line}, col ${data.column}: ${data.error}`
           : (data.error ?? 'Analysis failed');
         setFlowchartError(errMsg);
+        if (data.line) setSyntaxErrorLine(data.line);
         toast.error(errMsg);
         return;
+      }
+
+      if (language === 'java') {
+        toast.info('Java support is partial — complex constructs may not be fully represented.');
       }
 
       // Normalise node/edge ids
@@ -102,7 +108,7 @@ export function useFlowchartAPI() {
       setIsLoading(false);
       setLoadingFlowchart(false);
     }
-  }, [code, language, setFlowchartData, setFlowchartError, setIrNodes, setLoadingFlowchart]);
+  }, [code, language, setFlowchartData, setFlowchartError, setIrNodes, setLoadingFlowchart, setSyntaxErrorLine]);
 
   return { analyze, isLoading };
 }

@@ -5,6 +5,7 @@ import {
   MiniMap,
   Background,
   BackgroundVariant,
+  Panel,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -142,6 +143,11 @@ export default function FlowchartCanvas() {
           size={1}
           color="rgba(255,255,255,0.04)"
         />
+        <Panel position="top-right" className="flex items-center gap-2 pointer-events-none select-none">
+          <span className="text-[10px] font-mono text-white/30 bg-black/40 backdrop-blur px-2 py-1 rounded-lg border border-white/5">
+            {nodes.length} nodes · {edges.length} edges
+          </span>
+        </Panel>
       </ReactFlow>
     </div>
   );

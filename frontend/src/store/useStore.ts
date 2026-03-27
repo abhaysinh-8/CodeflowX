@@ -41,6 +41,10 @@ interface AppState {
   irNodes: IRNode[];
   setIrNodes: (nodes: IRNode[]) => void;
 
+  // Syntax error highlight
+  syntaxErrorLine: number | null;
+  setSyntaxErrorLine: (line: number | null) => void;
+
   // Execution state (Phase 2 placeholder)
   executionState: Record<string, unknown>;
   setExecutionState: (state: Record<string, unknown>) => void;
@@ -72,6 +76,10 @@ export const useStore = create<AppState>((set) => ({
   // IR Debug
   irNodes: [],
   setIrNodes: (irNodes) => set({ irNodes }),
+
+  // Syntax error highlight
+  syntaxErrorLine: null,
+  setSyntaxErrorLine: (syntaxErrorLine) => set({ syntaxErrorLine }),
 
   // Execution state
   executionState: {},

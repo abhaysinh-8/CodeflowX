@@ -1,6 +1,7 @@
-import { useCallback, useRef } from 'react';
-import MonacoEditor from '@monaco-editor/react';
+import { useCallback, useEffect, useRef } from 'react';
+import MonacoEditor, { useMonaco } from '@monaco-editor/react';
 import type { OnMount } from '@monaco-editor/react';
+import type { editor as MonacoEditorNS } from 'monaco-editor';
 import { Upload, FileCode } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import type { Language } from '../../store/useStore';
@@ -49,15 +50,73 @@ function detectLanguageFromCode(code: string): Language | null {
   return null;
 }
 
+/** Recursively locate an IR node by id in the stored tree (backend returns nested IR objects). */
+function findIRNode(nodes: unknown[], targetId: string): { source_start?: number; source_end?: number } | null {
+  for (const n of nodes) {
+    const node = n as { id?: string; source_start?: number; source_end?: number; children?: unknown[] };
+    if (node.id === targetId) return node;
+    if (node.children?.length) {
+      const found = findIRNode(node.children, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 interface CodeEditorPanelProps {
   onRun?: () => void;
 }
 
 export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
-  const { code, language, setCode, setLanguage } = useStore();
+  const { code, language, setCode, setLanguage, selectedNodeId, irNodes, syntaxErrorLine } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
+  const irDecorIdsRef = useRef<string[]>([]);
+  const errDecorIdsRef = useRef<string[]>([]);
+  const monaco = useMonaco();
+
+  // IR node click → reveal + highlight the corresponding source lines
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !monaco) return;
+
+    if (!selectedNodeId) {
+      irDecorIdsRef.current = editor.deltaDecorations(irDecorIdsRef.current, []);
+      return;
+    }
+
+    const node = findIRNode(irNodes, selectedNodeId);
+    if (!node?.source_start) return;
+
+    const startLine = node.source_start;
+    const endLine = node.source_end ?? startLine;
+    editor.revealLineInCenter(startLine);
+    irDecorIdsRef.current = editor.deltaDecorations(irDecorIdsRef.current, [{
+      range: new monaco.Range(startLine, 1, endLine, Number.MAX_SAFE_INTEGER),
+      options: { isWholeLine: true, className: 'monaco-ir-highlight' },
+    }]);
+  }, [selectedNodeId, irNodes, monaco]);
+
+  // Syntax error → red line decoration
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !monaco) return;
+
+    if (!syntaxErrorLine) {
+      errDecorIdsRef.current = editor.deltaDecorations(errDecorIdsRef.current, []);
+      return;
+    }
+
+    editor.revealLineInCenter(syntaxErrorLine);
+    errDecorIdsRef.current = editor.deltaDecorations(errDecorIdsRef.current, [{
+      range: new monaco.Range(syntaxErrorLine, 1, syntaxErrorLine, Number.MAX_SAFE_INTEGER),
+      options: { isWholeLine: true, className: 'monaco-error-highlight' },
+    }]);
+  }, [syntaxErrorLine, monaco]);
 
   const handleEditorMount: OnMount = (editor) => {
+    editorRef.current = editor;
+
     // Ctrl+Shift+L — cycle language
     editor.addCommand(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

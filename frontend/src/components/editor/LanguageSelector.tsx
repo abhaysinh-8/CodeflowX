@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import type { Language } from '../../store/useStore';
 import { ChevronDown } from 'lucide-react';
+import { toast } from '../ui/Toast';
 
 const LANGUAGES: { value: Language; label: string; gutter: string; partial?: boolean }[] = [
   { value: 'python',     label: 'Python 3.x',     gutter: 'bg-blue-500'   },
@@ -18,11 +19,18 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
   const { language, setLanguage } = useStore();
   const selectRef = useRef<HTMLDivElement>(null);
 
+  const handleSelectLanguage = useCallback((lang: Language) => {
+    setLanguage(lang);
+    if (lang === 'java') {
+      toast.info('Java support is partial — complex constructs may not be fully represented.');
+    }
+  }, [setLanguage]);
+
   const cycleLanguage = useCallback(() => {
     const langs = LANGUAGES.map(l => l.value);
     const idx = langs.indexOf(language);
-    setLanguage(langs[(idx + 1) % langs.length]);
-  }, [language, setLanguage]);
+    handleSelectLanguage(langs[(idx + 1) % langs.length]);
+  }, [language, handleSelectLanguage]);
 
   // Keyboard shortcut: Ctrl+Shift+L
   useEffect(() => {
@@ -57,7 +65,7 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
           {LANGUAGES.map(lang => (
             <button
               key={lang.value}
-              onClick={() => setLanguage(lang.value)}
+              onClick={() => handleSelectLanguage(lang.value)}
               className={`
                 w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-left transition-colors
                 ${language === lang.value ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}

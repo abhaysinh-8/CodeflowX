@@ -59,6 +59,17 @@
   @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
 }
 
+/* Monaco Editor decorations */
+.monaco-ir-highlight {
+  background-color: rgba(59, 130, 246, 0.15) !important;
+  border-left: 2px solid rgba(59, 130, 246, 0.7) !important;
+}
+
+.monaco-error-highlight {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-left: 2px solid rgba(239, 68, 68, 0.7) !important;
+}
+
 .spline-container {
   mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
 }
