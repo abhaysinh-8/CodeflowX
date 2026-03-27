@@ -1,4 +1,101 @@
-**/__pycache__
-**/node_modules
-venv
+# ============================================================
+# CodeFlowX+ — Root .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
+# Original source documents (keep .md conversions in docs/)
+# ------------------------------------------------------------
+CodeFlowX_Documentation.docx
+CodeFlowX_FullSplit.docx
+*.docx
+*.doc
+
+# ------------------------------------------------------------
+# Python — Backend
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.coveragerc
+
+# mypy / ruff / pyright
+.mypy_cache/
+.ruff_cache/
+pyrightconfig.json
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# ------------------------------------------------------------
+# Node / Frontend (root-level catches, frontend/ has its own)
+# ------------------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# ------------------------------------------------------------
+# Environment & secrets — NEVER commit these
+# ------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+*.pem
+*.key
+secrets.json
+
+# ------------------------------------------------------------
+# Docker
+# ------------------------------------------------------------
+.docker/
+docker-compose.override.yml
+
+# ------------------------------------------------------------
+# Database / Redis dumps
+# ------------------------------------------------------------
+*.db
+*.sqlite3
+dump.rdb
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+*.log
+logs/
+npm-debug.log*
+
+# ------------------------------------------------------------
+# OS & Editor artefacts
+# ------------------------------------------------------------
 .DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.suo
+*.sw?
+*.swp
