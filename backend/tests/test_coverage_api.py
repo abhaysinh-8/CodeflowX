@@ -62,6 +62,7 @@ def add(a, b):
     assert payload["status"] == "success"
     assert payload["format"] == "pytest-cov"
     assert "node_coverage_map" in payload
+    assert "coverage_node_coverage_map" in payload
     assert "summary" in payload
     assert payload["summary"]["total_nodes"] >= 1
     assert any(
@@ -80,4 +81,3 @@ def test_coverage_api_rejects_unknown_format():
     )
     assert response.status_code == 400
     assert "Unsupported coverage format" in response.json()["detail"]
-

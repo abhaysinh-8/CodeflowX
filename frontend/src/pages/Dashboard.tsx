@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useFlowchartAPI } from '../hooks/useFlowchartAPI';
-import { useDependencyAPI } from '../hooks/useDependencyAPI';
 import { useExecutionAPI } from '../hooks/useExecutionAPI';
 import FlowchartCanvas from '../components/canvas/FlowchartCanvas';
 import IRDebugPanel from '../components/canvas/IRDebugPanel';
@@ -25,10 +24,15 @@ export default function Dashboard() {
     isLoadingDependency,
     isLoadingCoverage,
     dependencyData,
-    setSelectedNodeId,
+    syncViewsEnabled,
+    setSyncViewsEnabled,
+    selectionHistory,
+    selectionHistoryIndex,
+    goSelectionBack,
+    goSelectionForward,
+    selectNode,
   } = useStore();
   const { analyze: analyzeFlowchart } = useFlowchartAPI();
-  const { analyzeDependency } = useDependencyAPI();
   const executionAPI = useExecutionAPI();
 
   const [activeTab, setActiveTab] = useState('flowchart');
@@ -41,14 +45,6 @@ export default function Dashboard() {
       : isLoadingFlowchart;
 
   const analyzeActiveTab = () => {
-    if (activeTab === 'dependency') {
-      analyzeDependency();
-      return;
-    }
-    if (activeTab === 'execution') {
-      executionAPI.runExecution();
-      return;
-    }
     analyzeFlowchart();
   };
 
@@ -87,7 +83,34 @@ export default function Dashboard() {
             </div>
           </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+            <button
+              onClick={goSelectionBack}
+              disabled={selectionHistoryIndex <= 0}
+              className="px-2 py-1 rounded border border-white/10 bg-white/5 text-xs text-white/60 disabled:opacity-40"
+              title="Cross-view back"
+            >
+              {'<'}
+            </button>
+            <button
+              onClick={goSelectionForward}
+              disabled={selectionHistoryIndex >= selectionHistory.length - 1}
+              className="px-2 py-1 rounded border border-white/10 bg-white/5 text-xs text-white/60 disabled:opacity-40"
+              title="Cross-view forward"
+            >
+              {'>'}
+            </button>
+            <button
+              onClick={() => setSyncViewsEnabled(!syncViewsEnabled)}
+              className={`px-2 py-1 rounded border text-[10px] uppercase tracking-widest ${
+                syncViewsEnabled
+                  ? 'border-cyan-400/50 bg-cyan-500/15 text-cyan-100'
+                  : 'border-white/10 bg-white/5 text-white/60'
+              }`}
+              title="Enable/disable cross-view sync"
+            >
+              {syncViewsEnabled ? 'Sync On' : 'Sync Off'}
+            </button>
             <LanguageSelector />
             <Button
               size="sm"
@@ -156,7 +179,7 @@ export default function Dashboard() {
                     <DependencyGraph
                       key={dependencyData?.graphId ?? 'dependency-empty'}
                       onOpenFlowchartNode={(irNodeId) => {
-                        setSelectedNodeId(irNodeId);
+                        selectNode(irNodeId, 'dependency');
                         setActiveTab('flowchart');
                       }}
                     />

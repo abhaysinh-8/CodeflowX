@@ -15,7 +15,7 @@ interface IRNode {
 
 function IRTreeNode({ node, depth = 0 }: { node: IRNode; depth?: number }) {
   const [expanded, setExpanded] = useState(depth < 2);
-  const { setSelectedNodeId } = useStore();
+  const { selectNode } = useStore();
   const children = Array.isArray(node.children) ? node.children : [];
   const hasChildren = children.length > 0;
 
@@ -25,7 +25,7 @@ function IRTreeNode({ node, depth = 0 }: { node: IRNode; depth?: number }) {
         className="flex items-center gap-1.5 py-0.5 px-1 rounded cursor-pointer hover:bg-white/5 group"
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
         onClick={() => {
-          setSelectedNodeId(node.id);
+          selectNode(node.id, 'editor');
           if (hasChildren) setExpanded(e => !e);
         }}
       >

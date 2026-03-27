@@ -7,23 +7,29 @@ import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCove
 export interface FunctionNodeData extends Record<string, unknown> {
   label: string;
   name?: string;
+  ir_node_id?: string;
   source_start?: number;
   source_end?: number;
   is_active?: boolean;
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const FunctionNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as FunctionNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
-  const handleClick = () => setSelectedNodeId(id);
+  const handleClick = () => {
+    const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+    selectNode(irNodeId, 'flowchart');
+  };
 
   return (
     <div
@@ -34,7 +40,8 @@ const FunctionNode = ({ id, data, selected }: NodeProps) => {
         relative min-w-[140px] rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-background' : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
-        ${selected ? 'border-blue-400/80 shadow-blue-500/30 shadow-xl' : 'border-blue-500/30'}
+        ${selected || nodeData.cross_selected ? 'border-blue-400/80 shadow-blue-500/30 shadow-xl' : 'border-blue-500/30'}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
       `}
     >
       {nodeData.has_breakpoint && (

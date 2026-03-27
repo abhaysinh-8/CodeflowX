@@ -6,6 +6,7 @@ import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCove
 
 export interface CallNodeData extends Record<string, unknown> {
   label: string;
+  ir_node_id?: string;
   callee?: string;
   source_start?: number;
   source_end?: number;
@@ -13,11 +14,13 @@ export interface CallNodeData extends Record<string, unknown> {
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const CallNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as CallNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
@@ -25,13 +28,17 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      onClick={() => setSelectedNodeId(id)}
+      onClick={() => {
+        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+        selectNode(irNodeId, 'flowchart');
+      }}
       title={`Calls: ${nodeData.callee || nodeData.label} — Line ${nodeData.source_start ?? '?'}`}
       aria-label={`Function call node: ${nodeData.label}`}
       className={`
         relative min-w-[140px] cursor-pointer transition-all duration-200 shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-purple-400 ring-offset-1 ring-offset-background' : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
       `}
     >
       {nodeData.has_breakpoint && (
@@ -41,13 +48,13 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
       <div
         className={`
           rounded-lg border-2 p-0.5
-          ${selected ? 'border-purple-400' : 'border-purple-500/50'}
+          ${selected || nodeData.cross_selected ? 'border-purple-400' : 'border-purple-500/50'}
         `}
       >
         <div
           className={`
             rounded-md border px-3 py-2.5 bg-[#130d1f]/90
-            ${selected ? 'border-purple-400/60' : 'border-purple-500/30'}
+            ${selected || nodeData.cross_selected ? 'border-purple-400/60' : 'border-purple-500/30'}
           `}
         >
           <div className="flex items-center gap-2 mb-1">

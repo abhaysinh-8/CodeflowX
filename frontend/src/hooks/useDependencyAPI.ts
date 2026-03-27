@@ -15,6 +15,7 @@ interface DependencyNodeResponse {
   x: number;
   y: number;
   ir_node_id?: string | null;
+  flowchart_job_id?: string | null;
   metadata?: Record<string, unknown>;
 }
 

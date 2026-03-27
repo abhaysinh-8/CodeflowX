@@ -5,6 +5,7 @@ import type { BreakpointHit, ExecutionStep } from '../types/execution';
 export type Language = 'python' | 'javascript' | 'typescript' | 'java';
 export type CoverageStatus = 'fully_covered' | 'partially_covered' | 'uncovered' | 'dead';
 export type CoverageFilter = 'all' | 'covered' | 'partial' | 'uncovered' | 'dead';
+export type SelectionSource = 'flowchart' | 'dependency' | 'execution' | 'coverage' | 'editor' | 'history' | 'system';
 
 interface FlowchartData {
   nodes: Node[];
@@ -72,10 +73,24 @@ interface CoverageSummary {
 interface CoverageData {
   format: string;
   node_coverage_map: Record<string, CoverageNodeRecord>;
+  coverage_node_coverage_map: Record<string, CoverageNodeRecord>;
   summary: CoverageSummary;
   report_json: Record<string, unknown>;
   file_name?: string;
   file_size?: number;
+}
+
+interface IRNodeLookupEntry {
+  flowchart_node_id?: string;
+  dependency_node_ids: string[];
+  source_start?: number;
+  source_end?: number;
+  coverage_status?: string;
+}
+
+interface SelectNodeOptions {
+  force?: boolean;
+  recordHistory?: boolean;
 }
 
 interface AppState {
@@ -85,9 +100,25 @@ interface AppState {
   setCode: (code: string) => void;
   setLanguage: (lang: Language) => void;
 
+  // Unified analysis context
+  analysisJobId: string | null;
+  irNodeLookup: Record<string, IRNodeLookupEntry>;
+  setAnalysisContext: (payload: { jobId: string | null; irNodeLookup?: Record<string, IRNodeLookupEntry> }) => void;
+
   // Cross-view sync
+  syncViewsEnabled: boolean;
   selectedNodeId: string | null;
+  selectionPulseNodeId: string | null;
+  selectionPulseToken: number;
+  selectionPulseAt: number;
+  selectionHistory: string[];
+  selectionHistoryIndex: number;
+  setSyncViewsEnabled: (enabled: boolean) => void;
   setSelectedNodeId: (id: string | null) => void;
+  selectNode: (id: string | null, source?: SelectionSource, options?: SelectNodeOptions) => void;
+  goSelectionBack: () => void;
+  goSelectionForward: () => void;
+  clearSelectionHistory: () => void;
 
   // Flowchart
   flowchartData: FlowchartData | null;
@@ -107,7 +138,7 @@ interface AppState {
   syntaxErrorLine: number | null;
   setSyntaxErrorLine: (line: number | null) => void;
 
-  // Execution state (legacy placeholder + phase 2 runtime state)
+  // Execution state
   executionState: Record<string, unknown>;
   setExecutionState: (state: Record<string, unknown>) => void;
   executionJobId: string | null;
@@ -136,7 +167,13 @@ interface AppState {
   setBreakpointHits: (hits: BreakpointHit[]) => void;
   togglePinnedVariable: (name: string) => void;
 
-  // Coverage (Phase 4)
+  // Dependency execution highlighting
+  dependencyExecutionActiveNodeId: string | null;
+  dependencyExecutionTrail: string[];
+  setDependencyExecutionActiveNodeId: (nodeId: string | null) => void;
+  clearDependencyExecutionTrail: () => void;
+
+  // Coverage
   coverageData: CoverageData | null;
   isLoadingCoverage: boolean;
   coverageError: string | null;
@@ -149,7 +186,7 @@ interface AppState {
   setCoverageFilter: (filter: CoverageFilter) => void;
   clearCoverage: () => void;
 
-  // Dependency graph (Phase 3)
+  // Dependency graph
   dependencyData: DependencyData | null;
   dependencySearchResults: DependencySearchResult[];
   isLoadingDependency: boolean;
@@ -167,9 +204,77 @@ export const useStore = create<AppState>((set) => ({
   setCode: (code) => set({ code }),
   setLanguage: (language) => set({ language }),
 
+  // Unified analysis context
+  analysisJobId: null,
+  irNodeLookup: {},
+  setAnalysisContext: ({ jobId, irNodeLookup }) => set({
+    analysisJobId: jobId,
+    irNodeLookup: irNodeLookup ?? {},
+  }),
+
   // Cross-view sync
+  syncViewsEnabled: true,
   selectedNodeId: null,
+  selectionPulseNodeId: null,
+  selectionPulseToken: 0,
+  selectionPulseAt: 0,
+  selectionHistory: [],
+  selectionHistoryIndex: -1,
+  setSyncViewsEnabled: (syncViewsEnabled) => set({ syncViewsEnabled }),
   setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  selectNode: (id, source = 'system', options = {}) => set((state) => {
+    void source;
+    if (!id) return {};
+    if (!state.syncViewsEnabled && !options.force) return {};
+
+    const updates: Partial<AppState> = {
+      selectedNodeId: id,
+      selectionPulseNodeId: id,
+      selectionPulseToken: state.selectionPulseToken + 1,
+      selectionPulseAt: Date.now(),
+    };
+
+    if (options.recordHistory !== false) {
+      const trimmed = state.selectionHistory.slice(0, state.selectionHistoryIndex + 1);
+      if (trimmed[trimmed.length - 1] !== id) {
+        trimmed.push(id);
+      }
+      updates.selectionHistory = trimmed;
+      updates.selectionHistoryIndex = trimmed.length - 1;
+    }
+
+    return updates;
+  }),
+  goSelectionBack: () => set((state) => {
+    if (state.selectionHistoryIndex <= 0) return {};
+    const nextIndex = state.selectionHistoryIndex - 1;
+    const selectedNodeId = state.selectionHistory[nextIndex] ?? null;
+    return {
+      selectionHistoryIndex: nextIndex,
+      selectedNodeId,
+      selectionPulseNodeId: selectedNodeId,
+      selectionPulseToken: state.selectionPulseToken + 1,
+      selectionPulseAt: Date.now(),
+    };
+  }),
+  goSelectionForward: () => set((state) => {
+    if (state.selectionHistoryIndex >= state.selectionHistory.length - 1) return {};
+    const nextIndex = state.selectionHistoryIndex + 1;
+    const selectedNodeId = state.selectionHistory[nextIndex] ?? null;
+    return {
+      selectionHistoryIndex: nextIndex,
+      selectedNodeId,
+      selectionPulseNodeId: selectedNodeId,
+      selectionPulseToken: state.selectionPulseToken + 1,
+      selectionPulseAt: Date.now(),
+    };
+  }),
+  clearSelectionHistory: () => set({
+    selectionHistory: [],
+    selectionHistoryIndex: -1,
+    selectedNodeId: null,
+    selectionPulseNodeId: null,
+  }),
 
   // Flowchart
   flowchartData: null,
@@ -214,6 +319,8 @@ export const useStore = create<AppState>((set) => ({
     isExecutionPaused: false,
     isExecutionPlaying: false,
     pinnedVariables: [],
+    dependencyExecutionActiveNodeId: null,
+    dependencyExecutionTrail: [],
   }),
   clearExecution: () => set({
     executionJobId: null,
@@ -225,6 +332,8 @@ export const useStore = create<AppState>((set) => ({
     isExecutionPlaying: false,
     isExecutionPaused: false,
     pinnedVariables: [],
+    dependencyExecutionActiveNodeId: null,
+    dependencyExecutionTrail: [],
   }),
   setLoadingExecution: (isLoadingExecution) => set({ isLoadingExecution }),
   setExecutionErrorMessage: (executionError) => set({ executionError, isLoadingExecution: false }),
@@ -259,6 +368,25 @@ export const useStore = create<AppState>((set) => ({
     };
   }),
 
+  // Dependency execution highlighting
+  dependencyExecutionActiveNodeId: null,
+  dependencyExecutionTrail: [],
+  setDependencyExecutionActiveNodeId: (nodeId) => set((state) => {
+    if (!nodeId) {
+      return { dependencyExecutionActiveNodeId: null };
+    }
+    const prev = state.dependencyExecutionTrail;
+    const nextTrail = prev[prev.length - 1] === nodeId ? prev : [...prev, nodeId];
+    return {
+      dependencyExecutionActiveNodeId: nodeId,
+      dependencyExecutionTrail: nextTrail,
+    };
+  }),
+  clearDependencyExecutionTrail: () => set({
+    dependencyExecutionActiveNodeId: null,
+    dependencyExecutionTrail: [],
+  }),
+
   // Coverage
   coverageData: null,
   isLoadingCoverage: false,
@@ -288,3 +416,6 @@ export const useStore = create<AppState>((set) => ({
   setLoadingDependency: (isLoadingDependency) => set({ isLoadingDependency }),
   setDependencyError: (dependencyError) => set({ dependencyError }),
 }));
+
+// Keep store warm for non-hook callers using getState().
+void useStore.getState();

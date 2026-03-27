@@ -7,6 +7,7 @@ import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCove
 
 export interface TryCatchNodeData extends Record<string, unknown> {
   label: string;
+  ir_node_id?: string;
   exception_type?: string;
   source_start?: number;
   source_end?: number;
@@ -14,11 +15,13 @@ export interface TryCatchNodeData extends Record<string, unknown> {
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const TryCatchNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as TryCatchNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
@@ -26,14 +29,18 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      onClick={() => setSelectedNodeId(id)}
+      onClick={() => {
+        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+        selectNode(irNodeId, 'flowchart');
+      }}
       title={`Try/Catch: ${nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Try-catch node: ${nodeData.label}`}
       className={`
         relative min-w-[150px] rounded-xl border-2 transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-orange-400 ring-offset-1 ring-offset-background' : ''}
-        ${selected ? 'border-orange-400/80 shadow-orange-500/30 shadow-xl' : 'border-orange-500/40'}
+        ${selected || nodeData.cross_selected ? 'border-orange-400/80 shadow-orange-500/30 shadow-xl' : 'border-orange-500/40'}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
         bg-[#1a0f00]/90
       `}
       style={{

@@ -85,6 +85,7 @@ result = add(1, 2)
     step_data = step_res.json()
     assert step_data["status"] == "success"
     assert step_data["step"]["active_node_id"].startswith("node-")
+    assert "currently_executing_function_id" in step_data["step"]
     assert isinstance(step_data["variables"], dict)
 
 

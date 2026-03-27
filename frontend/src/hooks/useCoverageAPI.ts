@@ -32,6 +32,7 @@ interface CoverageResponse {
     edges: Edge[];
   };
   node_coverage_map?: Record<string, CoverageNodeMapRecord>;
+  coverage_node_coverage_map?: Record<string, CoverageNodeMapRecord>;
   summary?: CoverageSummary;
   report_json?: Record<string, unknown>;
   detail?: string;
@@ -111,6 +112,7 @@ export function useCoverageAPI() {
       setCoverageData({
         format: data.format ?? 'Unknown',
         node_coverage_map: data.node_coverage_map ?? {},
+        coverage_node_coverage_map: data.coverage_node_coverage_map ?? data.node_coverage_map ?? {},
         summary: data.summary ?? {
           total_nodes: 0,
           covered: 0,
@@ -164,4 +166,3 @@ export function useCoverageAPI() {
     exportCoverageReport,
   };
 }
-

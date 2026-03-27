@@ -67,6 +67,7 @@ class EdgeTraversal(BaseModel):
 class ExecutionStep(BaseModel):
     step_id: int
     active_node_id: str
+    currently_executing_function_id: str | None = None
     prev_node_id: str | None = None
     variables: Dict[str, VariableState] = Field(default_factory=dict)
     call_stack: List[CallStackFrame] = Field(default_factory=list)
@@ -527,6 +528,7 @@ class ExecutionInterpreter:
         step = ExecutionStep(
             step_id=self._next_step_id,
             active_node_id=active_node_id,
+            currently_executing_function_id=self._current_frame().ir_node_id if self._frames else None,
             prev_node_id=prev_node_id,
             variables=self._snapshot_variables(),
             call_stack=[frame.model_copy(deep=True) for frame in self._call_stack],

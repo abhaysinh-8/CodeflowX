@@ -7,6 +7,7 @@ import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCove
 
 export interface LoopNodeData extends Record<string, unknown> {
   label: string;
+  ir_node_id?: string;
   loop_count?: number;
   source_start?: number;
   source_end?: number;
@@ -14,11 +15,13 @@ export interface LoopNodeData extends Record<string, unknown> {
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const LoopNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as LoopNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
@@ -26,14 +29,18 @@ const LoopNode = ({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      onClick={() => setSelectedNodeId(id)}
+      onClick={() => {
+        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+        selectNode(irNodeId, 'flowchart');
+      }}
       title={`Loop: ${nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Loop node: ${nodeData.label}`}
       className={`
         relative min-w-[140px] rounded-xl border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-green-400 ring-offset-1 ring-offset-background' : ''}
-        ${selected ? 'border-green-400/80 shadow-green-500/30 shadow-xl' : 'border-green-500/30'}
+        ${selected || nodeData.cross_selected ? 'border-green-400/80 shadow-green-500/30 shadow-xl' : 'border-green-500/30'}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
         bg-[#0a1f12]/90
       `}
     >

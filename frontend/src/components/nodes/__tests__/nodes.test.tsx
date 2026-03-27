@@ -10,10 +10,10 @@ vi.mock('@xyflow/react', () => ({
 }));
 
 // Mock zustand store
-const mockSetSelectedNodeId = vi.fn();
+const mockSelectNode = vi.fn();
 vi.mock('../../../store/useStore', () => ({
   useStore: (selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = { setSelectedNodeId: mockSetSelectedNodeId };
+    const state = { selectNode: mockSelectNode };
     return selector ? selector(state as never) : state;
   },
 }));
@@ -43,7 +43,7 @@ const baseProps = {
 };
 
 describe('FunctionNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders the function name', () => {
     render(
@@ -67,7 +67,7 @@ describe('FunctionNode', () => {
     expect(screen.getByText(/L3/)).toBeTruthy();
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <FunctionNode
         {...baseProps}
@@ -76,7 +76,7 @@ describe('FunctionNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /function node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('fn-42');
+    expect(mockSelectNode).toHaveBeenCalledWith('fn-42', 'flowchart');
   });
 
   it('applies selected border class when selected=true', () => {
@@ -93,7 +93,7 @@ describe('FunctionNode', () => {
 });
 
 describe('DecisionNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders the label', () => {
     render(
@@ -106,7 +106,7 @@ describe('DecisionNode', () => {
     expect(screen.getByText('x > 0?')).toBeTruthy();
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <DecisionNode
         {...baseProps}
@@ -115,12 +115,12 @@ describe('DecisionNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /decision node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('d-10');
+    expect(mockSelectNode).toHaveBeenCalledWith('d-10', 'flowchart');
   });
 });
 
 describe('LoopNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders loop label', () => {
     render(
@@ -133,7 +133,7 @@ describe('LoopNode', () => {
     expect(screen.getByText(/for i in range/)).toBeTruthy();
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <LoopNode
         {...baseProps}
@@ -142,12 +142,12 @@ describe('LoopNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /loop node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('loop-5');
+    expect(mockSelectNode).toHaveBeenCalledWith('loop-5', 'flowchart');
   });
 });
 
 describe('TerminalNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders start terminal', () => {
     render(
@@ -171,7 +171,7 @@ describe('TerminalNode', () => {
     expect(screen.getByText('End')).toBeTruthy();
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <TerminalNode
         {...baseProps}
@@ -180,12 +180,12 @@ describe('TerminalNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /terminal node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('term-1');
+    expect(mockSelectNode).toHaveBeenCalledWith('term-1', 'flowchart');
   });
 });
 
 describe('CallNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders callee name', () => {
     render(
@@ -198,7 +198,7 @@ describe('CallNode', () => {
     expect(screen.getAllByText(/process/).length).toBeGreaterThan(0);
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <CallNode
         {...baseProps}
@@ -207,12 +207,12 @@ describe('CallNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /call node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('call-7');
+    expect(mockSelectNode).toHaveBeenCalledWith('call-7', 'flowchart');
   });
 });
 
 describe('TryCatchNode', () => {
-  beforeEach(() => mockSetSelectedNodeId.mockClear());
+  beforeEach(() => mockSelectNode.mockClear());
 
   it('renders try block label', () => {
     render(
@@ -236,7 +236,7 @@ describe('TryCatchNode', () => {
     expect(screen.getByText(/TypeError/)).toBeTruthy();
   });
 
-  it('calls setSelectedNodeId on click', () => {
+  it('calls selectNode on click', () => {
     render(
       <TryCatchNode
         {...baseProps}
@@ -245,6 +245,6 @@ describe('TryCatchNode', () => {
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /try.catch node/i }));
-    expect(mockSetSelectedNodeId).toHaveBeenCalledWith('tc-3');
+    expect(mockSelectNode).toHaveBeenCalledWith('tc-3', 'flowchart');
   });
 });

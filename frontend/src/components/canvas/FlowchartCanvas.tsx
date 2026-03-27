@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -9,6 +9,7 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  type ReactFlowInstance,
 } from '@xyflow/react';
 import type { Node, Edge, Connection, NodeMouseHandler } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -60,32 +61,60 @@ export default function FlowchartCanvas() {
     isLoadingFlowchart,
     flowchartProgress,
     flowchartError,
-    setSelectedNodeId,
+    selectedNodeId,
+    selectionPulseNodeId,
+    selectionPulseToken,
+    selectionPulseAt,
+    selectNode,
     coverageData,
     coverageOverlayEnabled,
     coverageFilter,
   } = useStore();
   const { analyze } = useFlowchartAPI();
+  const [instance, setInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
+  const [clockMs, setClockMs] = useState(() => Date.now());
 
-  const coverageMap = useMemo(
+  const coverageMapByNode = useMemo(
     () => coverageData?.node_coverage_map ?? {},
     [coverageData?.node_coverage_map]
   );
+  const coverageMapByIr = useMemo(
+    () => coverageData?.coverage_node_coverage_map ?? {},
+    [coverageData?.coverage_node_coverage_map]
+  );
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClockMs(Date.now());
+    }, 120);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const displayNodes = useMemo(() => {
     const baseNodes = flowchartData?.nodes ?? DEMO_NODES;
     const withCoverage = baseNodes.map((node) => {
       const nodeData = { ...((node.data as Record<string, unknown>) ?? {}) };
-      const mapRecord = coverageMap[node.id];
+      const irNodeId = String(nodeData.ir_node_id ?? '').trim();
+      const mapRecord = (irNodeId ? coverageMapByIr[irNodeId] : undefined) ?? coverageMapByNode[node.id];
       const status = normalizeCoverageStatus(nodeData.coverage_status ?? mapRecord?.coverage_status);
       if (coverageOverlayEnabled && status) {
         nodeData.coverage_status = status;
         nodeData.coverage_overlay = true;
         nodeData.coverage_hit_lines = mapRecord?.hit_lines ?? nodeData.coverage_hit_lines;
         nodeData.coverage_total_lines = mapRecord?.total_lines ?? nodeData.coverage_total_lines;
+        nodeData.coverage_branch_covered = mapRecord?.branch_covered ?? nodeData.coverage_branch_covered;
+        nodeData.coverage_branch_total = mapRecord?.branch_total ?? nodeData.coverage_branch_total;
       } else {
         nodeData.coverage_overlay = false;
       }
+      nodeData.cross_selected = Boolean(selectedNodeId && irNodeId && irNodeId === selectedNodeId);
+      nodeData.cross_pulse = Boolean(
+        selectionPulseNodeId
+          && irNodeId
+          && irNodeId === selectionPulseNodeId
+          && clockMs - selectionPulseAt <= 500
+          && selectionPulseToken > 0
+      );
       return {
         ...node,
         data: nodeData,
@@ -95,7 +124,18 @@ export default function FlowchartCanvas() {
       const status = normalizeCoverageStatus((node.data as Record<string, unknown>)?.coverage_status);
       return matchesCoverageFilter(node, status, coverageFilter, coverageOverlayEnabled);
     });
-  }, [coverageFilter, coverageMap, coverageOverlayEnabled, flowchartData?.nodes]);
+  }, [
+    coverageFilter,
+    coverageMapByIr,
+    coverageMapByNode,
+    coverageOverlayEnabled,
+    flowchartData?.nodes,
+    selectedNodeId,
+    selectionPulseAt,
+    selectionPulseNodeId,
+    selectionPulseToken,
+    clockMs,
+  ]);
 
   const visibleNodeIds = useMemo(() => new Set(displayNodes.map((node) => node.id)), [displayNodes]);
 
@@ -112,6 +152,16 @@ export default function FlowchartCanvas() {
     setEdges(displayEdges);
   }, [displayNodes, displayEdges, setNodes, setEdges]);
 
+  useEffect(() => {
+    if (!instance || !selectedNodeId) return;
+    const target = displayNodes.find((node) => {
+      const data = (node.data as Record<string, unknown>) ?? {};
+      return String(data.ir_node_id ?? '') === selectedNodeId;
+    });
+    if (!target) return;
+    instance.setCenter(target.position.x, target.position.y, { zoom: 1.15, duration: 260 });
+  }, [displayNodes, instance, selectedNodeId]);
+
   const onConnect = useCallback(
     (connection: Connection) => setEdges((eds) => addEdge(connection, eds)),
     [setEdges]
@@ -119,8 +169,8 @@ export default function FlowchartCanvas() {
 
   const onNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
     const irNodeId = (node.data as Record<string, unknown> | undefined)?.ir_node_id;
-    setSelectedNodeId(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id);
-  }, [setSelectedNodeId]);
+    selectNode(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id, 'flowchart');
+  }, [selectNode]);
 
   const nodesWithTooltip = nodes.map((n) => ({
     ...n,
@@ -131,6 +181,11 @@ export default function FlowchartCanvas() {
         : null,
       n.data?.coverage_overlay && n.data?.coverage_status
         ? `Coverage: ${String(n.data.coverage_status)}`
+        : null,
+      n.data?.coverage_overlay &&
+      n.data?.coverage_status === 'partially_covered' &&
+      Number(n.data?.coverage_branch_total ?? 0) > Number(n.data?.coverage_branch_covered ?? 0)
+        ? `Untested branches: ${Number(n.data?.coverage_branch_total ?? 0) - Number(n.data?.coverage_branch_covered ?? 0)}`
         : null,
     ].filter(Boolean).join(' · '),
   }));
@@ -190,6 +245,7 @@ export default function FlowchartCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onInit={setInstance}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}

@@ -122,7 +122,9 @@ export default function ExecutionVisualizer({
 }: ExecutionVisualizerProps) {
   const {
     flowchartData,
-    setSelectedNodeId,
+    selectNode,
+    selectedNodeId,
+    irNodeLookup,
     executionSteps,
     currentExecutionStep,
     nextExecutionStep,
@@ -137,6 +139,7 @@ export default function ExecutionVisualizer({
     executionSpeed,
     pinnedVariables,
     togglePinnedVariable,
+    setDependencyExecutionActiveNodeId,
   } = useStore();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -223,12 +226,30 @@ export default function ExecutionVisualizer({
   }, [currentStep, decoratedNodes, instance]);
 
   useEffect(() => {
-    if (!currentStep) return;    const activeNode = decoratedNodes.find((node) => node.id === currentStep.active_node_id);
-    const irNodeId = (activeNode?.data as Record<string, unknown> | undefined)?.ir_node_id;
-    if (typeof irNodeId === 'string' && irNodeId) {
-      setSelectedNodeId(irNodeId);
+    if (!instance || !selectedNodeId) return;
+    const node = decoratedNodes.find((item) => {
+      const irNodeId = (item.data as Record<string, unknown> | undefined)?.ir_node_id;
+      return typeof irNodeId === 'string' && irNodeId === selectedNodeId;
+    });
+    if (!node) return;
+    instance.setCenter(node.position.x, node.position.y, { zoom: 1.12, duration: 220 });
+  }, [decoratedNodes, instance, selectedNodeId]);
+
+  useEffect(() => {
+    if (!currentStep) {
+      setDependencyExecutionActiveNodeId(null);
+      return;
     }
-  }, [currentStep, decoratedNodes, setSelectedNodeId]);
+    const activeNode = decoratedNodes.find((node) => node.id === currentStep.active_node_id);
+    const irNodeId = (activeNode?.data as Record<string, unknown> | undefined)?.ir_node_id;
+    const currentFunctionIrId = currentStep.currently_executing_function_id
+      || (typeof irNodeId === 'string' ? irNodeId : '');
+    if (currentFunctionIrId) {
+      selectNode(currentFunctionIrId, 'execution');
+      const depNodeIds = irNodeLookup[currentFunctionIrId]?.dependency_node_ids ?? [];
+      setDependencyExecutionActiveNodeId(depNodeIds[0] ?? null);
+    }
+  }, [currentStep, decoratedNodes, irNodeLookup, selectNode, setDependencyExecutionActiveNodeId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -294,12 +315,12 @@ export default function ExecutionVisualizer({
     (_event, node) => {
       focusedFlowNodeIdRef.current = node.id;
       const irNodeId = (node.data as Record<string, unknown> | undefined)?.ir_node_id;
-      setSelectedNodeId(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id);
+      selectNode(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id, 'execution');
       if (!executionBreakpoints.includes(node.id)) {
         toggleExecutionBreakpoint(node.id);
       }
     },
-    [executionBreakpoints, setSelectedNodeId, toggleExecutionBreakpoint]
+    [executionBreakpoints, selectNode, toggleExecutionBreakpoint]
   );
 
   const onNodeContextMenu: NodeMouseHandler = useCallback(
@@ -558,7 +579,7 @@ export default function ExecutionVisualizer({
               [...currentStep.call_stack].reverse().map((frame, index) => (
                 <button
                   key={`${frame.ir_node_id}-${index}`}
-                  onClick={() => { focusedFlowNodeIdRef.current = `node-${frame.ir_node_id}`; setSelectedNodeId(frame.ir_node_id); }}
+                  onClick={() => { focusedFlowNodeIdRef.current = `node-${frame.ir_node_id}`; selectNode(frame.ir_node_id, 'execution'); }}
                   className="w-full text-left mb-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 hover:bg-white/[0.06]"
                 >
                   <div className="text-xs text-slate-100 font-semibold">{frame.function_name}</div>

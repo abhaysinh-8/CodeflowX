@@ -63,12 +63,40 @@ function findIRNode(nodes: unknown[], targetId: string): { source_start?: number
   return null;
 }
 
+/** Locate the narrowest IR node that contains a given source line. */
+function findIRNodeByLine(
+  nodes: unknown[],
+  line: number
+): { id?: string; source_start?: number; source_end?: number; children?: unknown[] } | null {
+  let best: { id?: string; source_start?: number; source_end?: number; children?: unknown[] } | null = null;
+  for (const n of nodes) {
+    const node = n as { id?: string; source_start?: number; source_end?: number; children?: unknown[] };
+    const start = Number(node.source_start ?? -1);
+    const endRaw = Number(node.source_end ?? start);
+    const end = endRaw >= start ? endRaw : start;
+    if (start > 0 && line >= start && line <= end) {
+      const childBest = node.children?.length ? findIRNodeByLine(node.children, line) : null;
+      const candidate = childBest ?? node;
+      if (!best) {
+        best = candidate;
+      } else {
+        const bestSpan = Number(best.source_end ?? best.source_start ?? 0) - Number(best.source_start ?? 0);
+        const candSpan = Number(candidate.source_end ?? candidate.source_start ?? 0) - Number(candidate.source_start ?? 0);
+        if (candSpan <= bestSpan) {
+          best = candidate;
+        }
+      }
+    }
+  }
+  return best;
+}
+
 interface CodeEditorPanelProps {
   onRun?: () => void;
 }
 
 export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
-  const { code, language, setCode, setLanguage, selectedNodeId, irNodes, syntaxErrorLine } = useStore();
+  const { code, language, setCode, setLanguage, selectedNodeId, irNodes, syntaxErrorLine, coverageData } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
   const languageRef = useRef<Language>(language);
@@ -96,11 +124,15 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
     const startLine = Math.max(1, node.source_start);
     const endLine = Math.max(startLine, node.source_end ?? startLine);
     editor.revealLineInCenter(startLine);
+    const coverage = coverageData?.coverage_node_coverage_map?.[selectedNodeId];
+    const className = coverage?.coverage_status === 'uncovered'
+      ? 'monaco-coverage-uncovered-highlight'
+      : 'monaco-ir-highlight';
     irDecorIdsRef.current = editor.deltaDecorations(irDecorIdsRef.current, [{
       range: new monaco.Range(startLine, 1, endLine, Number.MAX_SAFE_INTEGER),
-      options: { isWholeLine: true, className: 'monaco-ir-highlight' },
+      options: { isWholeLine: true, className },
     }]);
-  }, [selectedNodeId, irNodes, monaco]);
+  }, [selectedNodeId, irNodes, monaco, coverageData]);
 
   // Syntax error → red line decoration
   useEffect(() => {
@@ -138,6 +170,16 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
       const detected = detectLanguageFromCode(pasted);
       if (detected && detected !== languageRef.current) {
         setLanguage(detected);
+      }
+    });
+
+    // Bidirectional sync: source line click selects corresponding flowchart/dependency node.
+    editor.onDidChangeCursorPosition((event) => {
+      const line = event.position.lineNumber;
+      if (!line || line < 1) return;
+      const hit = findIRNodeByLine(useStore.getState().irNodes, line);
+      if (hit?.id) {
+        useStore.getState().selectNode(hit.id, 'editor');
       }
     });
   };

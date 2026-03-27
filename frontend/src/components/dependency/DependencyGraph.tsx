@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -12,10 +12,12 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDependencyAPI } from '../../hooks/useDependencyAPI';
+import { nodeTypes as flowchartNodeTypes } from '../nodes';
 
+const API_BASE = 'http://localhost:8000';
 type FilterType = 'all' | 'function' | 'module' | 'class' | 'external' | 'entrypoint' | 'method';
 
 const TYPE_META: Record<string, { symbol: string; color: string }> = {
@@ -27,6 +29,24 @@ const TYPE_META: Record<string, { symbol: string; color: string }> = {
   entrypoint: { symbol: '▶', color: '#22c55e' },
 };
 
+interface FlowchartPanelPayload {
+  nodes: Node[];
+  edges: Edge[];
+  focus_flowchart_node_id?: string | null;
+  focus_ir_node_id?: string | null;
+}
+
+async function fetchToken(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/login`, { method: 'POST' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.access_token as string;
+  } catch {
+    return null;
+  }
+}
+
 function DependencyNode({ data, selected }: { data: Record<string, unknown>; selected?: boolean }) {
   const nodeType = String(data.type ?? 'function');
   const meta = TYPE_META[nodeType] ?? TYPE_META.function;
@@ -37,7 +57,11 @@ function DependencyNode({ data, selected }: { data: Record<string, unknown>; sel
   return (
     <div
       className={`min-w-[180px] max-w-[260px] rounded-xl border px-3 py-2 shadow-lg backdrop-blur-md ${
-        selected ? 'border-blue-400 bg-blue-500/10' : 'border-white/10 bg-slate-900/90'
+        selected
+          ? 'border-blue-400 bg-blue-500/15 shadow-blue-400/20'
+          : data.isTrail
+            ? 'border-blue-300/60 bg-blue-500/8'
+            : 'border-white/10 bg-slate-900/90'
       }`}
       style={{ opacity: data.isDimmed ? 0.3 : 1 }}
       title={[signature, docstring].filter(Boolean).join('\n') || label}
@@ -86,26 +110,61 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     dependencySearchResults,
     isLoadingDependency,
     dependencyError,
-    setSelectedNodeId,
+    analysisJobId,
+    selectedNodeId,
+    selectNode,
+    selectionHistory,
+    selectionHistoryIndex,
+    goSelectionBack,
+    goSelectionForward,
+    dependencyExecutionActiveNodeId,
+    dependencyExecutionTrail,
   } = useStore();
   const { searchDependency, isSearching } = useDependencyAPI();
 
+  const tokenRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
-  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [showClusters, setShowClusters] = useState(true);
   const [collapseClassMembers, setCollapseClassMembers] = useState(false);
   const [collapsedClusters, setCollapsedClusters] = useState<Record<string, boolean>>({});
-  const [history, setHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
   const [instance, setInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
 
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelLoading, setPanelLoading] = useState(false);
+  const [panelError, setPanelError] = useState<string | null>(null);
+  const [panelWidth, setPanelWidth] = useState(420);
+  const [panelHistory, setPanelHistory] = useState<string[]>([]);
+  const [panelHistoryIndex, setPanelHistoryIndex] = useState(-1);
+  const [panelPayloadByIr, setPanelPayloadByIr] = useState<Record<string, FlowchartPanelPayload>>({});
+
   useEffect(() => {
-    const timer = setTimeout(() => {
+    fetchToken().then((token) => {
+      tokenRef.current = token;
+    });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
       searchDependency(searchQuery);
     }, 300);
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [searchQuery, searchDependency]);
+
+  const activeNodeId = useMemo(() => {
+    if (!dependencyData) return null;
+    if (dependencyExecutionActiveNodeId && dependencyData.nodes.some((node) => node.id === dependencyExecutionActiveNodeId)) {
+      return dependencyExecutionActiveNodeId;
+    }
+    if (!selectedNodeId) return null;
+    const match = dependencyData.nodes.find((node) => {
+      const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
+      return typeof irNodeId === 'string' && irNodeId === selectedNodeId;
+    });
+    return match?.id ?? null;
+  }, [dependencyData, dependencyExecutionActiveNodeId, selectedNodeId]);
+
+  const executionTrailSet = useMemo(() => new Set(dependencyExecutionTrail), [dependencyExecutionTrail]);
 
   const relationSet = useMemo(() => {
     if (!activeNodeId || !dependencyData) return new Set<string>();
@@ -171,13 +230,15 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
       ...clusterNodes,
       ...filteredBaseNodes.map((node) => ({
         ...node,
+        selected: node.id === activeNodeId,
         data: {
           ...(node.data as Record<string, unknown>),
           isDimmed: activeNodeId ? !relationSet.has(node.id) : false,
+          isTrail: executionTrailSet.has(node.id) && node.id !== activeNodeId,
         },
       })),
     ];
-  }, [clusterNodes, filteredBaseNodes, activeNodeId, relationSet]);
+  }, [clusterNodes, filteredBaseNodes, activeNodeId, relationSet, executionTrailSet]);
 
   const graphEdges = useMemo<Edge[]>(() => {
     if (!dependencyData) return [];
@@ -187,30 +248,116 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         const dim = activeNodeId
           ? !(edge.source === activeNodeId || edge.target === activeNodeId)
           : false;
+        const inTrail = executionTrailSet.has(edge.source) || executionTrailSet.has(edge.target);
         const baseStyle = (edge.style ?? {}) as Record<string, unknown>;
+        const baseStroke = typeof baseStyle.stroke === 'string' ? baseStyle.stroke : undefined;
         return {
           ...edge,
           style: {
             ...baseStyle,
             opacity: dim ? 0.18 : 1,
+            strokeWidth: inTrail ? 2.4 : Number(baseStyle.strokeWidth ?? 1.6),
+            stroke: inTrail ? '#60a5fa' : baseStroke,
           },
         };
       });
-  }, [dependencyData, visibleNodeIds, activeNodeId]);
+  }, [dependencyData, visibleNodeIds, activeNodeId, executionTrailSet]);
 
-  const selectNode = useCallback(
+  useEffect(() => {
+    if (!instance || !activeNodeId) return;
+    const node = filteredBaseNodes.find((item) => item.id === activeNodeId) ?? dependencyData?.nodes.find((item) => item.id === activeNodeId);
+    if (!node) return;
+    instance.setCenter(node.position.x, node.position.y, { zoom: 1.2, duration: 280 });
+  }, [activeNodeId, dependencyData?.nodes, filteredBaseNodes, instance]);
+
+  const jumpToNode = useCallback(
     (nodeId: string) => {
-      setActiveNodeId(nodeId);
-      setHistory((prev) => {
-        const trimmed = prev.slice(0, historyIndex + 1);
-        if (trimmed[trimmed.length - 1] === nodeId) return trimmed;
-        const next = [...trimmed, nodeId];
-        setHistoryIndex(next.length - 1);
+      const node = filteredBaseNodes.find((n) => n.id === nodeId) || dependencyData?.nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
+      const selectionId = typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id;
+      selectNode(selectionId, 'dependency');
+      if (instance) {
+        instance.setCenter(node.position.x, node.position.y, { zoom: 1.2, duration: 300 });
+      }
+    },
+    [dependencyData?.nodes, filteredBaseNodes, instance, selectNode]
+  );
+
+  const activeNode = useMemo(() => {
+    if (!activeNodeId || !dependencyData) return null;
+    return dependencyData.nodes.find((node) => node.id === activeNodeId) ?? null;
+  }, [activeNodeId, dependencyData]);
+
+  const breadcrumbLabels = useMemo(() => {
+    if (!dependencyData || selectionHistoryIndex < 0) return [];
+    const ids = selectionHistory.slice(0, selectionHistoryIndex + 1);
+    return ids.map((irNodeId) => {
+      const node = dependencyData.nodes.find((item) => {
+        const nodeIrId = (item.data as Record<string, unknown>)?.ir_node_id;
+        return typeof nodeIrId === 'string' && nodeIrId === irNodeId;
+      });
+      return String((node?.data as Record<string, unknown> | undefined)?.name ?? irNodeId);
+    });
+  }, [dependencyData, selectionHistory, selectionHistoryIndex]);
+
+  const panelCurrentIr = panelHistoryIndex >= 0 ? panelHistory[panelHistoryIndex] : null;
+  const panelPayload = panelCurrentIr ? panelPayloadByIr[panelCurrentIr] : undefined;
+
+  const fetchFlowchartForNode = useCallback(async (irNodeId: string, pushHistory = true) => {
+    if (!irNodeId) return;
+
+    if (pushHistory) {
+      setPanelHistory((prev) => {
+        const trimmed = prev.slice(0, panelHistoryIndex + 1);
+        if (trimmed[trimmed.length - 1] === irNodeId) return trimmed;
+        const next = [...trimmed, irNodeId];
+        setPanelHistoryIndex(next.length - 1);
         return next;
       });
-    },
-    [historyIndex]
-  );
+    }
+
+    setPanelOpen(true);
+    setPanelError(null);
+
+    if (panelPayloadByIr[irNodeId]) return;
+
+    if (!analysisJobId) {
+      if (onOpenFlowchartNode) {
+        onOpenFlowchartNode(irNodeId);
+      }
+      setPanelError('No unified analysis job found. Run Analyze first to enable lazy flowchart panel.');
+      return;
+    }
+
+    if (!tokenRef.current) {
+      tokenRef.current = await fetchToken();
+    }
+
+    setPanelLoading(true);
+    try {
+      const params = new URLSearchParams({ ir_node_id: irNodeId });
+      const res = await fetch(`${API_BASE}/api/v1/analyze/${analysisJobId}/flowchart?${params.toString()}`, {
+        headers: tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status === 'error') {
+        setPanelError(data?.detail || data?.error || `Failed to fetch flowchart (${res.status})`);
+        return;
+      }
+      const payload: FlowchartPanelPayload = {
+        nodes: (data?.flowchart?.nodes ?? []) as Node[],
+        edges: (data?.flowchart?.edges ?? []) as Edge[],
+        focus_flowchart_node_id: data?.focus_flowchart_node_id ?? null,
+        focus_ir_node_id: data?.focus_ir_node_id ?? null,
+      };
+      setPanelPayloadByIr((prev) => ({ ...prev, [irNodeId]: payload }));
+    } catch (err) {
+      setPanelError(err instanceof Error ? err.message : 'Failed to fetch flowchart.');
+    } finally {
+      setPanelLoading(false);
+    }
+  }, [analysisJobId, onOpenFlowchartNode, panelHistoryIndex, panelPayloadByIr]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_evt, node) => {
@@ -224,53 +371,37 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         }
         return;
       }
-      selectNode(node.id);
       const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
+      const selectionId = typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id;
+      selectNode(selectionId, 'dependency');
       if (typeof irNodeId === 'string' && irNodeId) {
-        setSelectedNodeId(irNodeId);
+        void fetchFlowchartForNode(irNodeId, true);
       }
     },
-    [selectNode, setSelectedNodeId]
+    [fetchFlowchartForNode, selectNode]
   );
 
-  const jumpToNode = useCallback(
-    (nodeId: string) => {
-      selectNode(nodeId);
-      const node = filteredBaseNodes.find((n) => n.id === nodeId) || dependencyData?.nodes.find((n) => n.id === nodeId);
-      if (node && instance) {
-        instance.setCenter(node.position.x, node.position.y, { zoom: 1.2, duration: 400 });
-      }
-    },
-    [dependencyData?.nodes, filteredBaseNodes, instance, selectNode]
-  );
+  const onResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = panelWidth;
+    const onMove = (moveEvt: MouseEvent) => {
+      const delta = startX - moveEvt.clientX;
+      setPanelWidth(Math.max(320, Math.min(820, startWidth + delta)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [panelWidth]);
 
-  const activeNode = useMemo(() => {
-    if (!activeNodeId || !dependencyData) return null;
-    return dependencyData.nodes.find((node) => node.id === activeNodeId) ?? null;
-  }, [activeNodeId, dependencyData]);
-
-  const breadcrumbLabels = useMemo(() => {
-    if (!dependencyData || historyIndex < 0) return [];
-    const ids = history.slice(0, historyIndex + 1);
-    return ids.map((nodeId) => {
-      const node = dependencyData.nodes.find((item) => item.id === nodeId);
-      return String((node?.data as Record<string, unknown> | undefined)?.name ?? nodeId);
-    });
-  }, [dependencyData, history, historyIndex]);
-
-  const goBack = useCallback(() => {
-    if (historyIndex <= 0) return;
-    const nextIndex = historyIndex - 1;
-    setHistoryIndex(nextIndex);
-    setActiveNodeId(history[nextIndex] ?? null);
-  }, [history, historyIndex]);
-
-  const goForward = useCallback(() => {
-    if (historyIndex >= history.length - 1) return;
-    const nextIndex = historyIndex + 1;
-    setHistoryIndex(nextIndex);
-    setActiveNodeId(history[nextIndex] ?? null);
-  }, [history, historyIndex]);
+  const panelBack = useCallback(() => {
+    if (panelHistoryIndex <= 0) return;
+    const nextIndex = panelHistoryIndex - 1;
+    setPanelHistoryIndex(nextIndex);
+  }, [panelHistoryIndex]);
 
   if (isLoadingDependency) {
     return (
@@ -291,7 +422,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
   if (!dependencyData) {
     return (
       <div className="h-full flex items-center justify-center text-slate-500 text-xs italic">
-        Run analysis in Dependency tab to build graph
+        Run unified Analyze to build dependency graph.
       </div>
     );
   }
@@ -299,10 +430,18 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
   const openFlowchart = () => {
     if (!activeNode) return;
     const irNodeId = (activeNode.data as Record<string, unknown>)?.ir_node_id;
-    if (typeof irNodeId === 'string' && irNodeId && onOpenFlowchartNode) {
-      onOpenFlowchartNode(irNodeId);
+    if (typeof irNodeId === 'string' && irNodeId) {
+      void fetchFlowchartForNode(irNodeId, true);
     }
   };
+
+  const panelHeaderPath = activeNode
+    ? [
+      String((activeNode.data as Record<string, unknown>)?.module ?? ''),
+      String(((activeNode.data as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined)?.class_name ?? ''),
+      String((activeNode.data as Record<string, unknown>)?.name ?? ''),
+    ].filter(Boolean).join(' > ')
+    : '';
 
   return (
     <div className="h-full w-full rounded-2xl overflow-hidden border border-white/5 relative">
@@ -381,6 +520,8 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           nodeColor={(node) => {
             const data = (node.data as Record<string, unknown>) || {};
             const t = String(data.type ?? node.type ?? '');
+            if (node.id === activeNodeId) return '#60a5fa';
+            if (executionTrailSet.has(node.id)) return '#93c5fd';
             return TYPE_META[t]?.color ?? '#94a3b8';
           }}
           maskColor="rgba(0,0,0,0.45)"
@@ -388,16 +529,16 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.05)" />
         <Panel position="top-right" className="pointer-events-auto flex items-center gap-2">
           <button
-            onClick={goBack}
-            disabled={historyIndex <= 0}
+            onClick={goSelectionBack}
+            disabled={selectionHistoryIndex <= 0}
             className="px-2 py-1 rounded-lg bg-black/40 border border-white/10 text-white/60 disabled:opacity-40"
             title="Back"
           >
             <ChevronLeft className="w-3 h-3" />
           </button>
           <button
-            onClick={goForward}
-            disabled={historyIndex >= history.length - 1}
+            onClick={goSelectionForward}
+            disabled={selectionHistoryIndex >= selectionHistory.length - 1}
             className="px-2 py-1 rounded-lg bg-black/40 border border-white/10 text-white/60 disabled:opacity-40"
             title="Forward"
           >
@@ -418,6 +559,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           <div className="bg-black/45 border border-white/10 rounded-xl px-3 py-2 text-[10px] text-white/60 leading-5">
             <div>ƒ Function / m Method / 📦 Module / C Class / ⚡ External / ▶ Entrypoint</div>
             <div>Calls: solid | Imports: dashed | Inherits: dotted | Depends On: orange | Triggers: animated</div>
+            <div>Execution sync: active node blue, visited trail light-blue.</div>
           </div>
         </Panel>
       </ReactFlow>
@@ -437,16 +579,82 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           </div>
           <button
             onClick={openFlowchart}
-            disabled={!onOpenFlowchartNode || !String((activeNode.data as Record<string, unknown>)?.ir_node_id ?? '')}
+            disabled={!String((activeNode.data as Record<string, unknown>)?.ir_node_id ?? '')}
             className="mt-4 w-full px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-40"
           >
-            Open In Flowchart
+            Open In Side Flowchart
           </button>
           <div className="mt-6 text-[10px] text-white/35">
             Legend: Calls=solid, Imports=dashed, Inherits=dotted, Depends On=orange, Triggers=animated.
           </div>
         </div>
       )}
+
+      <div
+        className={`absolute top-0 right-0 h-full z-30 transition-transform duration-300 ${
+          panelOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+        style={{ width: panelWidth }}
+      >
+        <div className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-white/10 hover:bg-cyan-400/50" onMouseDown={onResizeStart} />
+        <div className="ml-1 h-full bg-[#070d16]/98 border-l border-white/10 flex flex-col">
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-cyan-200/70">Linked Flowchart</div>
+              <div className="text-[11px] text-white/70 truncate">{panelHeaderPath || 'Module > Class > Function'}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={panelBack}
+                disabled={panelHistoryIndex <= 0}
+                className="px-2 py-1 rounded bg-white/5 border border-white/10 text-white/60 disabled:opacity-40"
+                title="Previous flowchart in panel"
+              >
+                <ChevronLeft className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => setPanelOpen(false)}
+                className="px-2 py-1 rounded bg-white/5 border border-white/10 text-white/60"
+                title="Close panel"
+              >
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 relative">
+            {panelLoading && (
+              <div className="absolute inset-0 z-10 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center text-sm text-cyan-100 gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading flowchart...
+              </div>
+            )}
+            {panelError && (
+              <div className="absolute top-2 left-2 right-2 z-10 text-[11px] text-rose-200 bg-rose-500/15 border border-rose-500/30 rounded-lg px-2 py-1.5">
+                {panelError}
+              </div>
+            )}
+            {panelPayload ? (
+              <ReactFlow
+                nodes={panelPayload.nodes}
+                edges={panelPayload.edges}
+                nodeTypes={flowchartNodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+                className="bg-[#060b12]"
+                proOptions={{ hideAttribution: true }}
+              >
+                <Controls className="!bg-white/5 !border-white/10 !rounded-xl overflow-hidden [&>button]:!bg-transparent [&>button]:!border-white/10 [&>button]:!text-white/50 [&>button:hover]:!bg-white/10" />
+                <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.04)" />
+              </ReactFlow>
+            ) : (
+              <div className="h-full flex items-center justify-center text-xs text-slate-500 italic">
+                Click a dependency node to fetch its linked flowchart.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

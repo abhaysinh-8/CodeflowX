@@ -28,6 +28,7 @@ export interface ExecutionEdgeTraversal {
 export interface ExecutionStep {
   step_id: number;
   active_node_id: string;
+  currently_executing_function_id: string | null;
   prev_node_id: string | null;
   variables: Record<string, ExecutionVariableState>;
   call_stack: ExecutionCallStackFrame[];

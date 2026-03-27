@@ -11,6 +11,7 @@ CodeFlowX+ converts source code into an IR tree and interactive visualizations.
 - `3.3 Dependency Graph`: implemented and tested
 - `3.2 Execution Visualizer`: implemented and tested
 - `3.4 Coverage Heatmap`: implemented and tested
+- `4.1 Cross-View Linking`: implemented and tested
 
 ## Prerequisites
 
@@ -54,17 +55,19 @@ Frontend URLs:
 1. Open `http://localhost:5173/dashboard`
 2. Paste code in the editor
 3. Select language
-4. Keep `flowchart` tab active and click `Analyze` (tests feature `3.1`)
-5. Switch to `execution` tab and click `Analyze` or `Run` (tests feature `3.2`)
-6. Confirm step playback, variable watch, breakpoints, and call stack update
-7. Switch to `dependency` tab and click `Analyze` (tests feature `3.3`)
-8. Confirm graph renders and clicking dependency nodes can jump to flowchart
-9. Switch to `coverage` tab, upload a coverage file (XML/LCOV/JaCoCo/Native), and verify heatmap overlay + summary filters
+4. Click `Analyze` once (always uses unified `POST /api/v1/analyze`)
+5. Verify all tabs are populated from the same analysis job (`flowchart`, `execution`, `dependency`, `coverage`)
+6. Toggle `Sync On/Off` in the header and verify cross-view selection behavior
+7. Use `<` / `>` history buttons to navigate cross-view node selection
+8. In `dependency`, click a node and verify the right-side lazy flowchart panel opens
+9. In `execution`, run/play and verify active function highlights in dependency view
+10. In `coverage`, upload XML/LCOV/JaCoCo/Native and verify heatmap + editor/flowchart bidirectional highlight
 
 Notes:
 
 - Frontend uses backend at `http://localhost:8000`.
 - App fetches JWT from `POST /api/v1/login` before protected endpoints.
+- Dependency lazy flowchart panel uses `GET /api/v1/analyze/{job_id}/flowchart?ir_node_id=...`.
 
 ## Test Commands
 
@@ -87,6 +90,7 @@ npm run build
 - `POST /api/v1/flowchart`
 - `POST /api/v1/analyze`
 - `GET /api/v1/analyze/{job_id}`
+- `GET /api/v1/analyze/{job_id}/flowchart?ir_node_id=...`
 - `POST /api/v1/execution`
 - `GET /api/v1/execution/{job_id}`
 - `GET /api/v1/execution/{job_id}/step/{n}`

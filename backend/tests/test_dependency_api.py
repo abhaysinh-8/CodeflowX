@@ -33,6 +33,7 @@ def main():
     assert dep_data["status"] == "success"
     assert dep_data["graph_id"]
     assert dep_data["nodes"]
+    assert "flowchart_job_id" in dep_data["nodes"][0]
 
     graph_id = dep_data["graph_id"]
     search_res = client.get(

@@ -6,6 +6,7 @@ import { coverageBadge, coverageBorderClass, coveragePatternStyle, normalizeCove
 
 export interface DecisionNodeData extends Record<string, unknown> {
   label: string;
+  ir_node_id?: string;
   condition?: string;
   source_start?: number;
   source_end?: number;
@@ -13,17 +14,22 @@ export interface DecisionNodeData extends Record<string, unknown> {
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const DecisionNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as DecisionNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
 
-  const handleClick = () => setSelectedNodeId(id);
+  const handleClick = () => {
+    const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+    selectNode(irNodeId, 'flowchart');
+  };
 
   return (
     <div
@@ -34,6 +40,7 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
         relative flex items-center justify-center transition-all duration-200 cursor-pointer
         ${nodeData.is_active ? 'drop-shadow-[0_0_12px_rgba(234,179,8,0.8)]' : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
       `}
       style={{ width: 120, height: 80 }}
     >
@@ -44,7 +51,7 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
       <div
         className={`
           absolute inset-0 border-2 transition-all
-          ${selected ? 'border-yellow-400 bg-yellow-500/20' : 'border-yellow-500/50 bg-yellow-500/10'}
+          ${selected || nodeData.cross_selected ? 'border-yellow-400 bg-yellow-500/20' : 'border-yellow-500/50 bg-yellow-500/10'}
         `}
         style={{ transform: 'rotate(45deg)', borderRadius: 6 }}
       />

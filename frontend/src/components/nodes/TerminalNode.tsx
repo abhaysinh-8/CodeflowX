@@ -6,16 +6,19 @@ import { coverageBadge, coverageBorderClass, normalizeCoverageStatus } from './c
 
 export interface TerminalNodeData extends Record<string, unknown> {
   label: string;
+  ir_node_id?: string;
   terminal_type?: 'start' | 'end';
   is_active?: boolean;
   has_breakpoint?: boolean;
   coverage_status?: string;
   coverage_overlay?: boolean;
+  cross_selected?: boolean;
+  cross_pulse?: boolean;
 }
 
 const TerminalNode = ({ id, data, selected }: NodeProps) => {
   const nodeData = data as TerminalNodeData;
-  const setSelectedNodeId = useStore((s) => s.setSelectedNodeId);
+  const selectNode = useStore((s) => s.selectNode);
   const isStart = nodeData.terminal_type !== 'end';
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
@@ -23,7 +26,10 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      onClick={() => setSelectedNodeId(id)}
+      onClick={() => {
+        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
+        selectNode(irNodeId, 'flowchart');
+      }}
       aria-label={`${isStart ? 'Start' : 'End'} terminal node`}
       title={nodeData.label}
       className={`
@@ -31,7 +37,9 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
         transition-all duration-200 shadow-lg min-w-[100px] text-center
         ${nodeData.is_active ? (isStart ? 'ring-2 ring-emerald-400 ring-offset-1' : 'ring-2 ring-rose-400 ring-offset-1') : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
         ${selected
+          || nodeData.cross_selected
           ? (isStart ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100' : 'border-rose-400 bg-rose-500/20 text-rose-100')
           : (isStart ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-300' : 'border-rose-500/60 bg-rose-500/10 text-rose-300')
         }
