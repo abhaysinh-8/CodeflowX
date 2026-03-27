@@ -1,0 +1,27 @@
+name: CodeFlowX CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-java pytest fastapi uvicorn slowapi PyJWT cryptography python-multipart
+    - name: Run tests
+      run: |
+        cd backend
+        export PYTHONPATH=$PYTHONPATH:.
+        pytest tests/

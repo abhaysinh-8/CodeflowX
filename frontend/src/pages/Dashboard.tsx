@@ -1,193 +1,212 @@
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import {
-  Layout, Zap, Share2, Search, Code2, Settings,
-  ChevronRight, Database, Shield, GitBranch, Activity
+import React, { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Layout, Zap, Share2, Search, Code2, Settings, 
+  ChevronRight, Play, Database, Shield, Maximize2,
+  Loader2, AlertCircle, Sparkles, Binary
 } from 'lucide-react';
-import { useStore } from '../store/useStore';
-import CodeEditorPanel from '../components/editor/CodeEditorPanel';
-import LanguageSelector from '../components/editor/LanguageSelector';
-import FlowchartCanvas from '../components/canvas/FlowchartCanvas';
-import IRDebugPanel from '../components/canvas/IRDebugPanel';
-import { ToastContainer } from '../components/ui/Toast';
-import { useFlowchartAPI } from '../hooks/useFlowchartAPI';
-
-const NAV_ITEMS = [
-  { icon: Layout,     label: 'Flowchart',   id: 'flowchart'   },
-  { icon: Zap,        label: 'Execution',   id: 'execution'   },
-  { icon: Share2,     label: 'Dependency',  id: 'dependency'  },
-  { icon: Activity,   label: 'Coverage',    id: 'coverage'    },
-  { icon: GitBranch,  label: 'GitHub',      id: 'github'      },
-  { icon: Search,     label: 'Search',      id: 'search'      },
-  { icon: Database,   label: 'Storage',     id: 'storage'     },
-  { icon: Shield,     label: 'Security',    id: 'security'    },
-];
-
-// Tabs in the visualization panel
-const VIZ_TABS = ['Flowchart', 'Execution', 'Dependency'];
-
-const ExecutionTab = () => (
-  <div className="h-full glass border-white/5 rounded-2xl p-6">
-    <h4 className="text-sm font-bold text-white mb-6 flex items-center gap-2">
-      <Zap className="w-4 h-4 text-yellow-400" /> Step-by-Step Simulation
-    </h4>
-    <div className="space-y-3">
-      {['Initialized environment', 'Fetched dependencies', 'Analyzing control flow', 'Generating graph'].map((step, i) => (
-        <div key={i} className="p-3 glass border-white/5 rounded-xl flex items-center justify-between group hover:border-white/10 transition-colors">
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-white/20 font-mono w-5">0{i + 1}</span>
-            <span className="text-sm text-white/70">{step}</span>
-          </div>
-          <div className={`w-2 h-2 rounded-full ${i < 2 ? 'bg-green-500' : i === 2 ? 'bg-blue-400 animate-pulse' : 'bg-white/10'}`} />
-        </div>
-      ))}
-    </div>
-    <p className="text-[10px] text-white/20 font-mono mt-6 text-center">Phase 2 — Execution Visualizer (Coming Soon)</p>
-  </div>
-);
-
-const DependencyTab = () => (
-  <div className="h-full glass border-white/5 rounded-2xl flex flex-col items-center justify-center gap-4">
-    <Share2 className="w-10 h-10 text-white/10" />
-    <p className="text-white/30 text-sm font-semibold">Dependency Graph</p>
-    <p className="text-white/20 text-xs font-mono">Phase 3 — Coming Soon</p>
-  </div>
-);
+import Editor from '@monaco-editor/react';
+import { useFlowchartStore } from '../store/useFlowchartStore';
+import { FlowchartSection } from '../modules/flowchart/FlowchartSection';
+import { IRDebugPanel } from '../modules/flowchart/IRDebugPanel';
+import { Button } from '../components/ui/Button';
 
 export default function Dashboard() {
-  const [activeNav, setActiveNav] = useState('flowchart');
-  const [activeTab, setActiveTab] = useState('Flowchart');
-  const { flowchartData } = useStore();
-  const { analyze } = useFlowchartAPI();
+  const { 
+    code, language, setCode, setLanguage, 
+    setData, setLoading, setError, 
+    isLoading, error 
+  } = useFlowchartStore();
+  
+  const [activeTab, setActiveTab] = useState('flowchart');
+  const [token, setToken] = useState<string | null>(null);
+
+  // Auto-login for demo purposes
+  useEffect(() => {
+    const login = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/login', { method: 'POST' });
+        const data = await res.json();
+        setToken(data.access_token);
+      } catch (err) {
+        console.error("Failed to login", err);
+      }
+    };
+    login();
+  }, []);
+
+  const handleRunAnalysis = async () => {
+    if (!token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/flowchart', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ code, language })
+      });
+      
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setData({
+          nodes: data.nodes,
+          edges: data.edges,
+          ir: data.ir
+        });
+        setActiveTab('flowchart');
+      } else {
+        setError(data.error || 'Failed to analyze code');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden text-foreground">
-      {/* ── Sidebar ─────────────────────────────────────── */}
-      <aside className="w-[72px] border-r border-white/5 flex flex-col items-center py-6 gap-8 glass z-20 flex-shrink-0">
-        {/* Logo */}
-        <div className="p-2.5 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl shadow-lg shadow-blue-500/20">
-          <Code2 className="w-6 h-6 text-white" />
+    <div className="flex h-screen bg-[#020617] overflow-hidden text-slate-200 font-sans">
+      {/* Sidebar */}
+      <aside className="w-16 lg:w-20 border-r border-white/5 flex flex-col items-center py-6 gap-8 bg-slate-950/50 backdrop-blur-xl z-30">
+        <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/20">
+          <Sparkles className="w-6 h-6 text-white" />
         </div>
-
-        <nav className="flex flex-col gap-5 flex-grow" aria-label="Main navigation">
-          {NAV_ITEMS.map(({ icon: Icon, label, id }) => (
-            <button
-              key={id}
-              onClick={() => setActiveNav(id)}
-              title={label}
-              aria-label={label}
-              aria-current={activeNav === id ? 'page' : undefined}
-              className={`
-                p-2 rounded-xl transition-all duration-200
-                ${activeNav === id
-                  ? 'bg-blue-500/20 text-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.3)]'
-                  : 'text-white/20 hover:text-white hover:bg-white/5'}
-              `}
-            >
-              <Icon className="w-5 h-5" />
-            </button>
-          ))}
+        
+        <nav className="flex flex-col gap-6">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400"><Layout className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Database className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Binary className="w-5 h-5" /></div>
+            <div className="p-2 text-slate-500 hover:text-slate-200 transition-colors"><Shield className="w-5 h-5" /></div>
         </nav>
 
-        <div className="flex flex-col items-center gap-4">
-          <button title="Settings" aria-label="Settings" className="text-white/20 hover:text-white transition-colors">
-            <Settings className="w-5 h-5" />
-          </button>
-          <div
-            className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 border-2 border-white/20 cursor-pointer"
-            title="Abhaysinh"
-            aria-label="User profile"
-          />
+        <div className="mt-auto flex flex-col gap-6 p-4 border-t border-white/5 w-full items-center">
+            <Settings className="w-5 h-5 text-slate-500 hover:text-slate-200 cursor-pointer" />
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10" />
         </div>
       </aside>
 
-      {/* ── Main Content ─────────────────────────────────── */}
-      <main className="flex-grow flex flex-col p-5 gap-5 overflow-hidden min-w-0">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-lg font-bold flex items-center gap-2">
-                CodeFlowX+
-                <ChevronRight className="w-4 h-4 text-white/30" />
-                <span className="text-white/60 font-medium">Workspace</span>
-              </h1>
-              <p className="text-[10px] text-white/20 font-mono">Phase 1 — Flowchart Engine</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <LanguageSelector />
-            {flowchartData && (
-              <motion.span
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full font-mono"
+        <header className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-slate-950/20 backdrop-blur-md">
+           <div className="flex items-center gap-4">
+              <h2 className="text-lg font-bold tracking-tight">CodeFlowX<span className="text-blue-500">+</span></h2>
+              <div className="h-4 w-px bg-white/10" />
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                <span>main</span>
+                <ChevronRight className="w-3 h-3" />
+                <span className="text-slate-300">flow_engine.py</span>
+              </div>
+           </div>
+           
+           <div className="flex items-center gap-3">
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-slate-900 border border-white/10 rounded-md px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
               >
-                ✓ {flowchartData.nodes.length} nodes · {flowchartData.edges.length} edges
-              </motion.span>
-            )}
-          </div>
+                <option value="python">Python</option>
+                <option value="javascript">JavaScript</option>
+                <option value="java">Java</option>
+              </select>
+              <Button 
+                size="sm" 
+                variant="primary" 
+                onClick={handleRunAnalysis}
+                disabled={isLoading}
+                className="gap-2 shadow-blue-500/10"
+              >
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                Analyze
+              </Button>
+           </div>
         </header>
 
-        {/* ── Split Workspace ─────────────────────────────── */}
-        <div className="flex-grow flex gap-5 min-h-0">
-          {/* Left: Code Editor */}
-          <div className="w-[46%] flex flex-col gap-3 min-h-0 flex-shrink-0">
-            {/* Editor sub-header */}
-            <div className="flex items-center gap-4 border-b border-white/5 pb-2 flex-shrink-0">
-              <span className="text-sm font-bold border-b-2 border-blue-500 pb-2 px-1">Editor</span>
-              <span className="text-sm text-white/20 font-medium pb-2">History</span>
-            </div>
-            <div className="flex-grow min-h-0">
-              <CodeEditorPanel onRun={analyze} />
-            </div>
-          </div>
-
-          {/* Right: Visualization Panel */}
-          <div className="flex-grow flex flex-col gap-3 min-h-0 min-w-0">
-            {/* Viz sub-header */}
-            <div className="flex items-center justify-between border-b border-white/5 pb-2 flex-shrink-0">
-              <div className="flex gap-4">
-                {VIZ_TABS.map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`
-                      text-sm font-bold pb-2 px-1 transition-colors border-b-2
-                      ${activeTab === tab
-                        ? 'border-blue-500 text-white'
-                        : 'border-transparent text-white/20 hover:text-white/50'}
-                    `}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-              {/* Node/Edge badge */}
-              <div className="flex items-center gap-2 text-[10px] text-white/30 font-mono">
-                {activeTab === 'Flowchart' && flowchartData && (
-                  <>
-                    <span>{flowchartData.nodes.length} nodes</span>
-                    <span className="text-white/10">·</span>
-                    <span>{flowchartData.edges.length} edges</span>
-                  </>
-                )}
-              </div>
+        {/* Workspace Area */}
+        <div className="flex-1 flex min-h-0 relative">
+            {/* Editor Section */}
+            <div className="flex-1 flex flex-col min-w-0 border-r border-white/5">
+                <div className="flex items-center gap-1 p-2 bg-slate-950/40 border-b border-white/5">
+                    <div className="px-3 py-1.5 rounded-md bg-white/5 text-[10px] uppercase tracking-wider font-bold text-blue-400 border border-white/5">Editor</div>
+                </div>
+                <div className="flex-1 overflow-hidden relative">
+                    <Editor
+                      height="100%"
+                      defaultLanguage="python"
+                      language={language}
+                      theme="vs-dark"
+                      value={code}
+                      onChange={(val) => setCode(val || '')}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        fontFamily: 'JetBrains Mono, Menlo, monospace',
+                        backgroundColor: '#020617',
+                        lineNumbersMinChars: 3,
+                        scrollBeyondLastLine: false,
+                        padding: { top: 20 },
+                      }}
+                    />
+                </div>
             </div>
 
-            {/* Canvas area */}
-            <div className="flex-grow min-h-0">
-              {activeTab === 'Flowchart'   && <FlowchartCanvas />}
-              {activeTab === 'Execution'   && <ExecutionTab />}
-              {activeTab === 'Dependency'  && <DependencyTab />}
+            {/* Visualization Section */}
+            <div className="flex-1 flex flex-col min-w-0 bg-slate-950/10">
+                <div className="flex items-center justify-between p-2 bg-slate-950/40 border-b border-white/5">
+                    <div className="flex gap-2">
+                        {['flowchart', 'execution', 'dependency'].map(tab => (
+                            <button 
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`px-4 py-1.5 rounded-md text-[10px] uppercase tracking-widest font-bold transition-all ${activeTab === tab ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div className="flex-1 min-h-0 p-4 overflow-hidden relative">
+                    <AnimatePresence mode="wait">
+                        <motion.div 
+                            key={activeTab}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="h-full"
+                        >
+                            {activeTab === 'flowchart' && <FlowchartSection />}
+                            {activeTab === 'execution' && (
+                                <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Execution Simulation (Coming Soon)</div>
+                            )}
+                            {activeTab === 'dependency' && (
+                                <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Dependency Graph (Coming Soon)</div>
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
+
+                    {error && (
+                        <div className="absolute bottom-8 right-8 max-w-sm p-4 bg-red-500/10 border border-red-500/30 rounded-xl backdrop-blur-md flex gap-3 items-start animate-in fade-in slide-in-from-bottom-4">
+                            <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+                            <div>
+                                <h4 className="text-sm font-bold text-red-400">Analysis Error</h4>
+                                <p className="text-xs text-red-300/70 mt-1">{error}</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
-          </div>
+
+            {/* IR Debug Panel */}
+            <IRDebugPanel />
         </div>
-      </main>
-
-      {/* Floating UI */}
-      <IRDebugPanel />
-      <ToastContainer />
+      </div>
     </div>
   );
 }

@@ -171,10 +171,30 @@ def get_support_level(language: str) -> str:
 # GrammarLoader Class — Backward Compatibility Wrapper
 # ---------------------------------------------------------------------------
 class GrammarLoader:
+<<<<<<< HEAD
     """
     Class-based wrapper around function-based grammar loaders.
     Provides backward compatibility with existing main.py endpoints.
     """
+=======
+    """Loader to initialize tree-sitter grammars and parse source code."""
+    
+    _languages = {
+        "python": Language(tree_sitter_python.language()),
+        "javascript": Language(tree_sitter_javascript.language()),
+        "java": Language(tree_sitter_java.language()),
+    }
+    
+    @classmethod
+    def get_parser(cls, lang_id: str) -> Optional[Parser]:
+        """Returns a tree-sitter Parser initialized for the specified language."""
+        lang = cls._languages.get(lang_id.lower())
+        if not lang:
+            return None
+        
+        parser = Parser(lang)
+        return parser
+>>>>>>> origin/main
 
     @classmethod
     def parse(cls, code: str, language: str) -> Optional[Any]:
@@ -201,8 +221,18 @@ class GrammarLoader:
         except Exception as exc:
             logger.error(f"Failed to parse code with '{language}' grammar: {exc}")
             return None
+<<<<<<< HEAD
 
     @classmethod
     def get_support_status(cls, language: str) -> str:
         """Get the support level for a language (full/partial/unsupported)."""
         return get_support_level(language)
+=======
+        
+        # In tree-sitter 0.22+, parse expects bytes
+        try:
+            tree = parser.parse(bytes(code, "utf8"))
+            return tree
+        except Exception:
+            return None
+>>>>>>> origin/main
