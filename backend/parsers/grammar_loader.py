@@ -165,3 +165,44 @@ def get_support_level(language: str) -> str:
     if language in PARTIALLY_SUPPORTED_LANGUAGES:
         return "partial"
     return "unsupported"
+
+
+# ---------------------------------------------------------------------------
+# GrammarLoader Class — Backward Compatibility Wrapper
+# ---------------------------------------------------------------------------
+class GrammarLoader:
+    """
+    Class-based wrapper around function-based grammar loaders.
+    Provides backward compatibility with existing main.py endpoints.
+    """
+
+    @classmethod
+    def parse(cls, code: str, language: str) -> Optional[Any]:
+        """
+        Parse code using the appropriate grammar for the language.
+
+        Args:
+            code: Source code string
+            language: Language identifier (e.g., 'python', 'typescript', 'javascript')
+
+        Returns:
+            A tree-sitter Tree object, or None if grammar unavailable.
+        """
+        try:
+            from tree_sitter import Parser
+            lang = load_grammar(language)
+            if lang is None:
+                logger.warning(f"Grammar for '{language}' is not available.")
+                return None
+
+            parser = Parser(lang)
+            tree = parser.parse(bytes(code, "utf8"))
+            return tree
+        except Exception as exc:
+            logger.error(f"Failed to parse code with '{language}' grammar: {exc}")
+            return None
+
+    @classmethod
+    def get_support_status(cls, language: str) -> str:
+        """Get the support level for a language (full/partial/unsupported)."""
+        return get_support_level(language)
