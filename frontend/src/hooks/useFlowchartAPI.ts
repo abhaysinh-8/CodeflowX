@@ -9,10 +9,36 @@ interface FlowchartResponse {
   status?: 'success' | 'error';
   nodes?: Node[];
   edges?: Edge[];
-  ir?: unknown;
+  ir?: IRTreeNode;
   error?: string;
   line?: number;
   column?: number;
+}
+
+interface IRTreeNode {
+  id: string;
+  type: string;
+  language?: string;
+  name?: string;
+  source_start?: number;
+  source_end?: number;
+  children: IRTreeNode[];
+  metadata: Record<string, unknown>;
+}
+
+const KNOWN_NODE_TYPES = new Set([
+  'function_def',
+  'if_stmt',
+  'for_loop',
+  'while_loop',
+  'terminal',
+  'call',
+  'try_except',
+  'custom',
+]);
+
+function normalizeNodeType(type: unknown): string {
+  return typeof type === 'string' && KNOWN_NODE_TYPES.has(type) ? type : 'custom';
 }
 
 /** Auto-login once and cache the JWT for the session lifetime. */
@@ -66,6 +92,8 @@ export function useFlowchartAPI() {
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
         const msg = detail?.detail ?? `Server error ${res.status}`;
+        setFlowchartData(null);
+        setIrNodes([]);
         setFlowchartError(msg);
         toast.error(msg);
         return;
@@ -77,6 +105,8 @@ export function useFlowchartAPI() {
         const errMsg = data.line
           ? `Syntax error at line ${data.line}, col ${data.column}: ${data.error}`
           : (data.error ?? 'Analysis failed');
+        setFlowchartData(null);
+        setIrNodes([]);
         setFlowchartError(errMsg);
         if (data.line) setSyntaxErrorLine(data.line);
         toast.error(errMsg);
@@ -91,6 +121,7 @@ export function useFlowchartAPI() {
       const nodes: Node[] = (data.nodes ?? []).map((n, i) => ({
         ...n,
         id: (n as Node).id ?? String(i + 1),
+        type: normalizeNodeType((n as Node).type),
       }));
       const edges: Edge[] = (data.edges ?? []).map((e, i) => ({
         ...e,
@@ -98,10 +129,12 @@ export function useFlowchartAPI() {
       }));
 
       setFlowchartData({ nodes, edges });
-      if (data.ir) setIrNodes([data.ir] as never[]);
+      setIrNodes(data.ir ? [data.ir] : []);
       toast.success('Flowchart generated successfully!');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Network error. Is the backend running?';
+      setFlowchartData(null);
+      setIrNodes([]);
       setFlowchartError(msg);
       toast.error(msg);
     } finally {

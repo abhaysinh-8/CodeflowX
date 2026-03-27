@@ -1,6 +1,8 @@
 import pytest
 from backend.ir.ir_node import IRNode, IRNodeType
 from backend.modules.flowchart import FlowchartModule
+from backend.parsers.grammar_loader import GrammarLoader
+from backend.ir.transformer import ASTTransformer
 
 def test_flowchart_sequential():
     # Create mock IR nodes
@@ -37,3 +39,43 @@ def test_flowchart_with_if():
     node_labels = [n["data"]["label"] for n in result["nodes"]]
     assert "Condition?" in node_labels
     assert "CALL: print" in node_labels
+
+
+def test_flowchart_traverses_nested_function_body():
+    code = """
+def add(a, b):
+    x = a + b
+    if x > 0:
+        print(x)
+    return x
+"""
+    tree = GrammarLoader.parse(code, "python")
+    ir = ASTTransformer("python", code).transform(tree.root_node)
+
+    module = FlowchartModule()
+    result = module.generate(ir)
+
+    labels = [n["data"]["label"] for n in result["nodes"]]
+    assert any(lbl == "add" for lbl in labels), "Function node missing"
+    assert "Assignment" in labels, "Nested assignment from function body missing"
+    assert "Condition?" in labels, "Nested if from function body missing"
+    assert "CALL: print" in labels, "Nested call from branch missing"
+    assert "Return" in labels, "Nested return from function body missing"
+
+    edge_labels = [e.get("label", "") for e in result["edges"]]
+    assert "true" in edge_labels
+    assert "false" in edge_labels
+
+
+def test_flowchart_nodes_include_source_ranges_and_ir_links():
+    code = "def f():\n    return 1\n"
+    tree = GrammarLoader.parse(code, "python")
+    ir = ASTTransformer("python", code).transform(tree.root_node)
+    result = FlowchartModule().generate(ir)
+
+    function_nodes = [n for n in result["nodes"] if n["type"] == "function_def"]
+    assert function_nodes, "Expected at least one function_def node"
+    fn_data = function_nodes[0]["data"]
+    assert fn_data.get("source_start") == 1
+    assert fn_data.get("source_end") >= fn_data.get("source_start")
+    assert fn_data.get("ir_node_id"), "Flowchart node should carry source IR node id"

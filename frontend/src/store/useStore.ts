@@ -11,10 +11,11 @@ interface FlowchartData {
 interface IRNode {
   id: string;
   type: string;
-  name: string;
-  source_start: number;
-  source_end: number;
-  children: string[];
+  language?: string;
+  name?: string;
+  source_start?: number;
+  source_end?: number;
+  children: IRNode[];
   metadata: Record<string, unknown>;
 }
 

@@ -27,7 +27,20 @@ import CallNode from '../CallNode';
 import TryCatchNode from '../TryCatchNode';
 
 // Helper — mimics the NodeProps subset each component uses
-const baseProps = { xPos: 0, yPos: 0, zIndex: 0, isConnectable: true, selected: false, dragging: false, draggable: true, selectable: true, deletable: true, type: '' };
+const baseProps = {
+  xPos: 0,
+  yPos: 0,
+  zIndex: 0,
+  isConnectable: true,
+  positionAbsoluteX: 0,
+  positionAbsoluteY: 0,
+  selected: false,
+  dragging: false,
+  draggable: true,
+  selectable: true,
+  deletable: true,
+  type: '',
+};
 
 describe('FunctionNode', () => {
   beforeEach(() => mockSetSelectedNodeId.mockClear());

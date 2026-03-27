@@ -4,6 +4,7 @@ import LoopNode from './LoopNode';
 import TerminalNode from './TerminalNode';
 import CallNode from './CallNode';
 import TryCatchNode from './TryCatchNode';
+import { CustomNode as CustomShapeNode } from '../../modules/flowchart/nodes/CustomNode';
 
 /**
  * nodeTypes map for React Flow.
@@ -17,6 +18,7 @@ export const nodeTypes = {
   terminal: TerminalNode,
   call: CallNode,
   try_except: TryCatchNode,
+  custom: CustomShapeNode,
 };
 
 export {

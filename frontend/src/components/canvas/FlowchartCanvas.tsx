@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -44,8 +44,14 @@ export default function FlowchartCanvas() {
   const displayNodes = flowchartData?.nodes ?? DEMO_NODES;
   const displayEdges = flowchartData?.edges ?? DEMO_EDGES;
 
-  const [nodes, , onNodesChange] = useNodesState(displayNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState(displayNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(displayEdges);
+
+  // Keep React Flow state in sync when fresh backend data arrives.
+  useEffect(() => {
+    setNodes(displayNodes);
+    setEdges(displayEdges);
+  }, [displayNodes, displayEdges, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (connection: Connection) => setEdges((eds) => addEdge(connection, eds)),
@@ -54,7 +60,8 @@ export default function FlowchartCanvas() {
 
   // Node click → sync selectedNodeId across views
   const onNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
-    setSelectedNodeId(node.id);
+    const irNodeId = (node.data as Record<string, unknown> | undefined)?.ir_node_id;
+    setSelectedNodeId(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id);
   }, [setSelectedNodeId]);
 
   // Node hover tooltip title — shows name and line range from node data

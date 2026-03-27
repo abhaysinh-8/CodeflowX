@@ -5,17 +5,19 @@ import { useStore } from '../../store/useStore';
 interface IRNode {
   id: string;
   type: string;
+  language?: string;
   name?: string;
   source_start?: number;
   source_end?: number;
-  children: string[];
+  children?: IRNode[];
   metadata?: Record<string, unknown>;
 }
 
 function IRTreeNode({ node, depth = 0 }: { node: IRNode; depth?: number }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const { setSelectedNodeId } = useStore();
-  const hasChildren = node.children.length > 0;
+  const children = Array.isArray(node.children) ? node.children : [];
+  const hasChildren = children.length > 0;
 
   return (
     <div className="select-none">
@@ -36,17 +38,14 @@ function IRTreeNode({ node, depth = 0 }: { node: IRNode; depth?: number }) {
           <span className="text-purple-400">{node.type}</span>
           {node.name && <span className="text-white/60"> {node.name}</span>}
           {node.source_start !== undefined && (
-            <span className="text-white/20"> :L{node.source_start}</span>
+            <span className="text-white/20"> :L{node.source_start}–{node.source_end ?? node.source_start}</span>
           )}
         </span>
       </div>
       {expanded && hasChildren && (
-        <div>
-          {node.children.map(childId => (
-            <div key={childId} className="text-[10px] font-mono text-white/20 py-0.5"
-              style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}>
-              → <span className="text-blue-400/60">{childId.slice(0, 8)}</span>
-            </div>
+        <div className="border-l border-white/10 ml-2">
+          {children.map(child => (
+            <IRTreeNode key={child.id} node={child} depth={depth + 1} />
           ))}
         </div>
       )}

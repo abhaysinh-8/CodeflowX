@@ -16,7 +16,6 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from backend.parsers.grammar_loader import GrammarLoader, is_language_supported, get_support_level
-from backend.parsers.language_registry import LanguageRegistry
 from backend.ir.transformer import ASTTransformer
 from backend.modules.flowchart import FlowchartModule
 from backend.api.auth import get_current_user, create_access_token
@@ -84,6 +83,7 @@ def _run_flowchart_pipeline(code: str, language: str) -> Dict[str, Any]:
         return {
             "id": node.id,
             "type": node.type.value,
+            "language": node.language,
             "name": node.name,
             "source_start": node.source_start,
             "source_end": node.source_end,

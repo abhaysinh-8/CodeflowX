@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ChevronRight, ChevronDown, ListTree } from 'lucide-react';
 import { useFlowchartStore } from '../../store/useFlowchartStore';
 

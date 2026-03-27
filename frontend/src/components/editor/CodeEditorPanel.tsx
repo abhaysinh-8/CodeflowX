@@ -71,9 +71,14 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
   const { code, language, setCode, setLanguage, selectedNodeId, irNodes, syntaxErrorLine } = useStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
+  const languageRef = useRef<Language>(language);
   const irDecorIdsRef = useRef<string[]>([]);
   const errDecorIdsRef = useRef<string[]>([]);
   const monaco = useMonaco();
+
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
 
   // IR node click → reveal + highlight the corresponding source lines
   useEffect(() => {
@@ -86,10 +91,10 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
     }
 
     const node = findIRNode(irNodes, selectedNodeId);
-    if (!node?.source_start) return;
+    if (node?.source_start == null) return;
 
-    const startLine = node.source_start;
-    const endLine = node.source_end ?? startLine;
+    const startLine = Math.max(1, node.source_start);
+    const endLine = Math.max(startLine, node.source_end ?? startLine);
     editor.revealLineInCenter(startLine);
     irDecorIdsRef.current = editor.deltaDecorations(irDecorIdsRef.current, [{
       range: new monaco.Range(startLine, 1, endLine, Number.MAX_SAFE_INTEGER),
@@ -114,16 +119,15 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
     }]);
   }, [syntaxErrorLine, monaco]);
 
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor;
 
     // Ctrl+Shift+L — cycle language
     editor.addCommand(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (window as any).monaco?.KeyMod?.CtrlCmd | (window as any).monaco?.KeyMod?.Shift | (window as any).monaco?.KeyCode?.KeyL,
+      monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyMod.Shift | monacoInstance.KeyCode.KeyL,
       () => {
         const langs: Language[] = ['python', 'javascript', 'typescript', 'java'];
-        const idx = langs.indexOf(language);
+        const idx = langs.indexOf(languageRef.current);
         setLanguage(langs[(idx + 1) % langs.length]);
       }
     );
@@ -132,7 +136,7 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
     editor.onDidPaste(() => {
       const pasted = editor.getValue();
       const detected = detectLanguageFromCode(pasted);
-      if (detected && detected !== language) {
+      if (detected && detected !== languageRef.current) {
         setLanguage(detected);
       }
     });

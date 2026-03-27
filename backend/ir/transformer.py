@@ -13,7 +13,7 @@ class ASTTransformer:
 
     def generate_uuid(self, node_type: str, start_byte: int, end_byte: int) -> str:
         """Generates a deterministic UUID based on node properties."""
-        hash_input = f"{node_type}:{start_byte}:{end_byte}"
+        hash_input = f"{self.language}:{node_type}:{start_byte}:{end_byte}"
         hash_val = hashlib.md5(hash_input.encode()).hexdigest()
         return str(uuid.UUID(hash_val))
 
@@ -36,16 +36,25 @@ class ASTTransformer:
 
         node_type = self._map_type(node.type)
         node_name = self._extract_name(node)
+        start_line = node.start_point[0] + 1
+        end_line = node.end_point[0] + 1
         
         ir_node = IRNode(
             id=self.generate_uuid(node.type, node.start_byte, node.end_byte),
             type=node_type,
             language=self.language,
             name=node_name,
-            source_start=node.start_byte,
-            source_end=node.end_byte,
+            # Line-oriented ranges so frontend editor highlighting is accurate.
+            source_start=start_line,
+            source_end=end_line,
             children=[],
-            metadata={"raw_type": node.type}
+            metadata={
+                "raw_type": node.type,
+                "start_byte": node.start_byte,
+                "end_byte": node.end_byte,
+                "start_column": node.start_point[1] + 1,
+                "end_column": node.end_point[1] + 1,
+            }
         )
 
         # Visit children
@@ -69,19 +78,28 @@ class ASTTransformer:
             "if_statement": IRNodeType.IF_STMT,
             "for_statement": IRNodeType.FOR_LOOP,
             "while_statement": IRNodeType.WHILE_LOOP,
+            "for_in_statement": IRNodeType.FOR_LOOP,
             "return_statement": IRNodeType.RETURN,
             "call": IRNodeType.CALL,
             "try_statement": IRNodeType.TRY_EXCEPT,
             "class_definition": IRNodeType.CLASS_DEF,
             "assignment": IRNodeType.ASSIGNMENT,
+            "augmented_assignment": IRNodeType.ASSIGNMENT,
             "expression_statement": IRNodeType.OTHER,
             
             # JavaScript
             "function_declaration": IRNodeType.FUNCTION_DEF,
+            "generator_function_declaration": IRNodeType.FUNCTION_DEF,
+            "arrow_function": IRNodeType.FUNCTION_DEF,
+            "function": IRNodeType.FUNCTION_DEF,
+            "method_definition": IRNodeType.FUNCTION_DEF,
             "lexical_declaration": IRNodeType.ASSIGNMENT,
             "variable_declaration": IRNodeType.ASSIGNMENT,
+            "assignment_expression": IRNodeType.ASSIGNMENT,
             "call_expression": IRNodeType.CALL,
             "class_declaration": IRNodeType.CLASS_DEF,
+            "for_in_statement": IRNodeType.FOR_LOOP,
+            "for_of_statement": IRNodeType.FOR_LOOP,
             
             # Java
             "method_declaration": IRNodeType.FUNCTION_DEF,
@@ -98,6 +116,8 @@ class ASTTransformer:
             "try_statement": IRNodeType.TRY_EXCEPT,
             "return_statement": IRNodeType.RETURN,
             "block": IRNodeType.BLOCK,
+            "program": IRNodeType.BLOCK,
+            "module": IRNodeType.BLOCK,
         }
         return mapping.get(ts_type, IRNodeType.OTHER)
 
