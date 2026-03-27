@@ -7,16 +7,34 @@ import {
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useFlowchartAPI } from '../hooks/useFlowchartAPI';
+import { useDependencyAPI } from '../hooks/useDependencyAPI';
 import FlowchartCanvas from '../components/canvas/FlowchartCanvas';
 import IRDebugPanel from '../components/canvas/IRDebugPanel';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
+import DependencyGraph from '../components/dependency/DependencyGraph';
 import { Button } from '../components/ui/Button';
 
 export default function Dashboard() {
-  const { language, setLanguage, isLoadingFlowchart: isLoading } = useStore();
-  const { analyze } = useFlowchartAPI();
+  const {
+    language,
+    setLanguage,
+    isLoadingFlowchart,
+    isLoadingDependency,
+    setSelectedNodeId,
+  } = useStore();
+  const { analyze: analyzeFlowchart } = useFlowchartAPI();
+  const { analyzeDependency } = useDependencyAPI();
 
   const [activeTab, setActiveTab] = useState('flowchart');
+  const isLoading = activeTab === 'dependency' ? isLoadingDependency : isLoadingFlowchart;
+
+  const analyzeActiveTab = () => {
+    if (activeTab === 'dependency') {
+      analyzeDependency();
+      return;
+    }
+    analyzeFlowchart();
+  };
 
   return (
     <div className="flex h-screen bg-[#020617] overflow-hidden text-slate-200 font-sans">
@@ -67,7 +85,7 @@ export default function Dashboard() {
             <Button
               size="sm"
               variant="primary"
-              onClick={analyze}
+              onClick={analyzeActiveTab}
               disabled={isLoading}
               className="gap-2 shadow-blue-500/10"
             >
@@ -85,7 +103,7 @@ export default function Dashboard() {
               <div className="px-3 py-1.5 rounded-md bg-white/5 text-[10px] uppercase tracking-wider font-bold text-blue-400 border border-white/5">Editor</div>
             </div>
             <div className="flex-1 overflow-hidden relative p-2">
-              <CodeEditorPanel onRun={analyze} />
+              <CodeEditorPanel onRun={analyzeActiveTab} />
             </div>
           </div>
 
@@ -119,7 +137,12 @@ export default function Dashboard() {
                     <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Execution Simulation (Coming Soon)</div>
                   )}
                   {activeTab === 'dependency' && (
-                    <div className="h-full flex items-center justify-center text-slate-500 italic text-xs">Dependency Graph (Coming Soon)</div>
+                    <DependencyGraph
+                      onOpenFlowchartNode={(irNodeId) => {
+                        setSelectedNodeId(irNodeId);
+                        setActiveTab('flowchart');
+                      }}
+                    />
                   )}
                 </motion.div>
               </AnimatePresence>
