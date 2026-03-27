@@ -1,2 +1,4 @@
-CodeFlowX_Documentation.docx
-CodeFlowX_FullSplit.docx
+**/__pycache__
+**/node_modules
+venv
+.DS_Store
