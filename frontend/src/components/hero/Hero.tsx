@@ -1,10 +1,12 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, Play, Code2 } from 'lucide-react';
 import Spline from '@splinetool/react-spline';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/Button';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 export function Hero() {
+  const navigate = useNavigate();
   return (
     <section className="relative min-h-screen flex flex-col md:flex-row items-center justify-between px-6 pt-24 md:px-12 md:pt-0 overflow-hidden">
       {/* Background Glows */}
@@ -41,7 +43,7 @@ export function Hero() {
           transition={{ delay: 0.3, duration: 0.8 }}
           className="flex flex-wrap gap-4"
         >
-          <Button size="lg" className="gap-2 shadow-blue-500/25 shadow-xl">
+          <Button size="lg" className="gap-2 shadow-blue-500/25 shadow-xl" onClick={() => navigate('/dashboard')}>
             Get Started Free <ArrowRight className="w-5 h-5" />
           </Button>
           <Button variant="secondary" size="lg" className="gap-2">
