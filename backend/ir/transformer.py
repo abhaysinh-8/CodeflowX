@@ -123,10 +123,17 @@ class ASTTransformer:
 
     def _extract_name(self, node: Any) -> str:
         """Heuristically extracts a 'name' for the node."""
-        if node.type in ("function_definition", "function_declaration", "class_definition", "class_declaration", "method_declaration"):
+        if node.type in (
+            "function_definition",
+            "function_declaration",
+            "class_definition",
+            "class_declaration",
+            "method_declaration",
+            "method_definition",
+        ):
             for i in range(node.child_count):
                 child = node.child(i)
-                if child.type == "identifier":
+                if child.type in ("identifier", "property_identifier"):
                     return self.get_node_text(child)
         
         if node.type in ("call", "call_expression", "method_invocation"):

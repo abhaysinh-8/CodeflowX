@@ -8,6 +8,34 @@ interface FlowchartData {
   edges: Edge[];
 }
 
+interface DependencyCluster {
+  id: string;
+  type: string;
+  name: string;
+  module: string;
+  node_ids: string[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface DependencyData {
+  graphId: string;
+  nodes: Node[];
+  edges: Edge[];
+  clusters: DependencyCluster[];
+}
+
+interface DependencySearchResult {
+  id: string;
+  name: string;
+  type: string;
+  module: string;
+  signature?: string;
+  docstring?: string;
+}
+
 interface IRNode {
   id: string;
   type: string;
@@ -53,6 +81,16 @@ interface AppState {
   // Coverage (Phase 4 placeholder)
   coverageData: Record<string, unknown>;
   setCoverageData: (data: Record<string, unknown>) => void;
+
+  // Dependency graph (Phase 3)
+  dependencyData: DependencyData | null;
+  dependencySearchResults: DependencySearchResult[];
+  isLoadingDependency: boolean;
+  dependencyError: string | null;
+  setDependencyData: (data: DependencyData | null) => void;
+  setDependencySearchResults: (results: DependencySearchResult[]) => void;
+  setLoadingDependency: (loading: boolean) => void;
+  setDependencyError: (error: string | null) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -89,4 +127,14 @@ export const useStore = create<AppState>((set) => ({
   // Coverage
   coverageData: {},
   setCoverageData: (coverageData) => set({ coverageData }),
+
+  // Dependency graph
+  dependencyData: null,
+  dependencySearchResults: [],
+  isLoadingDependency: false,
+  dependencyError: null,
+  setDependencyData: (dependencyData) => set({ dependencyData }),
+  setDependencySearchResults: (dependencySearchResults) => set({ dependencySearchResults }),
+  setLoadingDependency: (isLoadingDependency) => set({ isLoadingDependency }),
+  setDependencyError: (dependencyError) => set({ dependencyError }),
 }));
