@@ -82,28 +82,31 @@ def _load_javascript() -> Optional[Any]:
 
 def _load_java() -> Optional[Any]:
     """
-    STUB — Java 11+ grammar loader.
+    Java 11+ grammar loader.
+    Requires: pip install tree-sitter-java
 
-    HOW TO IMPLEMENT:
-      pip install tree-sitter-java
-      from tree_sitter import Language
-      import tree_sitter_java as tsj
-      return Language(tsj.language())
-
-    Planned support:
+    Supports:
     - Classes, interfaces, enums
-    - try-with-resources
+    - try-with-resources, try/catch/finally
     - Lambda expressions (Java 8+)
     - Records (Java 16+)
     - Sealed classes (Java 17+)
-
-    Status: STUB — returns None until grammar package is integrated.
     """
-    logger.warning(
-        "Java grammar is not yet fully integrated. "
-        "Planned for Phase 1 completion. Returning None."
-    )
-    return None
+    try:
+        import tree_sitter_java as tsj  # type: ignore[import]
+        from tree_sitter import Language
+        lang = Language(tsj.language())
+        logger.info("Java grammar loaded successfully.")
+        return lang
+    except ImportError:
+        logger.warning(
+            "tree-sitter-java not installed. "
+            "Run: pip install tree-sitter-java"
+        )
+        return None
+    except Exception as exc:
+        logger.error("Failed to load Java grammar: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -136,20 +139,24 @@ def load_grammar(language: str) -> Optional[Any]:
         ValueError: If the language is completely unknown (not even stubbed).
     """
     if language == "python":
-        # Python grammar is managed by Yash's parser module (LanguageRegistry).
-        # This loader does not handle Python — delegate.
-        raise ValueError(
-            "Python grammar is managed by the LanguageRegistry (Yash's module). "
-            "Call LanguageRegistry.parse(code, 'python') directly."
-        )
+        # Python grammar is loaded directly via tree-sitter-python.
+        try:
+            import tree_sitter_python as tspython  # type: ignore[import]
+            from tree_sitter import Language
+            lang = Language(tspython.language())
+            logger.info("Python grammar loaded successfully.")
+            return lang
+        except ImportError:
+            logger.warning("tree-sitter-python not installed. Run: pip install tree-sitter-python")
+            return None
+        except Exception as exc:
+            logger.error("Failed to load Python grammar: %s", exc)
+            return None
 
     loader_fn = GRAMMAR_REGISTRY.get(language)
     if loader_fn is None:
-        raise ValueError(
-            f"Unknown language: '{language}'. "
-            f"Supported languages: {sorted(ALL_SUPPORTED_LANGUAGES)}"
-        )
-
+        logger.warning("Unknown language '%s'. Supported: %s", language, sorted(ALL_SUPPORTED_LANGUAGES))
+        return None
     return loader_fn()
 
 
@@ -183,23 +190,22 @@ class GrammarLoader:
 
         Args:
             code: Source code string
-            language: Language identifier (e.g., 'python', 'typescript', 'javascript')
+            language: Language identifier (e.g., 'python', 'typescript', 'javascript', 'java')
 
         Returns:
-            A tree-sitter Tree object, or None if grammar unavailable.
+            A tree_sitter.Tree object, or None if grammar unavailable.
         """
         try:
             from tree_sitter import Parser
             lang = load_grammar(language)
             if lang is None:
-                logger.warning(f"Grammar for '{language}' is not available.")
+                logger.warning("Grammar for '%s' is not available.", language)
                 return None
 
             parser = Parser(lang)
-            tree = parser.parse(bytes(code, "utf8"))
-            return tree
+            return parser.parse(bytes(code, "utf8"))
         except Exception as exc:
-            logger.error(f"Failed to parse code with '{language}' grammar: {exc}")
+            logger.error("Failed to parse code with '%s' grammar: %s", language, exc)
             return None
 
     @classmethod

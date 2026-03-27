@@ -9,9 +9,8 @@ import {
   useEdgesState,
   addEdge,
 } from '@xyflow/react';
-import type { Node, Edge, Connection } from '@xyflow/react';
+import type { Node, Edge, Connection, NodeMouseHandler } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
 
 import { nodeTypes } from '../nodes';
 import { useStore } from '../../store/useStore';
@@ -39,7 +38,7 @@ const DEMO_EDGES: Edge[] = [
 ];
 
 export default function FlowchartCanvas() {
-  const { flowchartData, isLoadingFlowchart, flowchartError } = useStore();
+  const { flowchartData, isLoadingFlowchart, flowchartError, setSelectedNodeId } = useStore();
 
   const displayNodes = flowchartData?.nodes ?? DEMO_NODES;
   const displayEdges = flowchartData?.edges ?? DEMO_EDGES;
@@ -52,6 +51,21 @@ export default function FlowchartCanvas() {
     [setEdges]
   );
 
+  // Node click → sync selectedNodeId across views
+  const onNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
+    setSelectedNodeId(node.id);
+  }, [setSelectedNodeId]);
+
+  // Node hover tooltip title — shows name and line range from node data
+  const nodesWithTooltip = nodes.map((n) => ({
+    ...n,
+    title: [
+      n.data?.label,
+      n.data?.source_start != null
+        ? `Lines ${n.data.source_start}–${n.data.source_end ?? n.data.source_start}`
+        : null,
+    ].filter(Boolean).join(' · '),
+  }));
   if (isLoadingFlowchart) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 glass border-white/5 rounded-2xl">
@@ -91,11 +105,12 @@ export default function FlowchartCanvas() {
         </div>
       )}
       <ReactFlow
-        nodes={nodes}
+        nodes={nodesWithTooltip}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}

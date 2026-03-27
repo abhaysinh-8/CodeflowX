@@ -35,6 +35,20 @@ const LANG_COLORS: Record<Language, string> = {
   java: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
 };
 
+/** Heuristically detect language from pasted code. */
+function detectLanguageFromCode(code: string): Language | null {
+  const trimmed = code.trimStart();
+  // Java: class/public/import com./package
+  if (/^(public\s+class|class\s+\w|import\s+java|package\s+\w)/.test(trimmed)) return 'java';
+  // TypeScript: type annotations with : Type, interface, enum, as keyword
+  if (/:\s*(string|number|boolean|void|any|unknown)\b|^(interface|enum|type)\s+\w/.test(trimmed)) return 'typescript';
+  // JavaScript: const/let/var, =>, require(, console.log
+  if (/^(const|let|var)\s+|=>|require\s*\(|console\.log/.test(trimmed)) return 'javascript';
+  // Python: def, import, print(, for x in, elif, self.
+  if (/^(def |import |from |class |print\(|elif |@)/.test(trimmed) || /\bself\./.test(trimmed)) return 'python';
+  return null;
+}
+
 interface CodeEditorPanelProps {
   onRun?: () => void;
 }
@@ -54,6 +68,15 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
         setLanguage(langs[(idx + 1) % langs.length]);
       }
     );
+
+    // Paste detection — auto-set language from clipboard content
+    editor.onDidPaste(() => {
+      const pasted = editor.getValue();
+      const detected = detectLanguageFromCode(pasted);
+      if (detected && detected !== language) {
+        setLanguage(detected);
+      }
+    });
   };
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
