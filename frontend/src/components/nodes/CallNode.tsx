@@ -16,6 +16,8 @@ export interface CallNodeData extends Record<string, unknown> {
   coverage_overlay?: boolean;
   cross_selected?: boolean;
   cross_pulse?: boolean;
+  failure_severity?: string;
+  failure_unreachable?: boolean;
 }
 
 const CallNode = ({ id, data, selected }: NodeProps) => {
@@ -25,12 +27,25 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
+  const failureSeverity = typeof nodeData.failure_severity === 'string' ? nodeData.failure_severity : '';
+  const failureClass = failureSeverity === 'failed'
+    ? 'border-rose-400/90 shadow-rose-500/40'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400/80 shadow-orange-500/35'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300/80 shadow-amber-500/25'
+        : nodeData.failure_unreachable
+          ? 'border-rose-300/70'
+          : '';
 
   return (
     <div
       onClick={() => {
-        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
-        selectNode(irNodeId, 'flowchart');
+        void id;
+        const irNodeId = typeof nodeData.ir_node_id === 'string' ? nodeData.ir_node_id.trim() : '';
+        if (irNodeId) {
+          selectNode(irNodeId, 'flowchart');
+        }
       }}
       title={`Calls: ${nodeData.callee || nodeData.label} — Line ${nodeData.source_start ?? '?'}`}
       aria-label={`Function call node: ${nodeData.label}`}
@@ -38,6 +53,7 @@ const CallNode = ({ id, data, selected }: NodeProps) => {
         relative min-w-[140px] cursor-pointer transition-all duration-200 shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-purple-400 ring-offset-1 ring-offset-background' : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${failureClass}
         ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
       `}
     >

@@ -15,7 +15,9 @@ import '@xyflow/react/dist/style.css';
 import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useDependencyAPI } from '../../hooks/useDependencyAPI';
+import { useFailureSimulationAPI } from '../../hooks/useFailureSimulationAPI';
 import { nodeTypes as flowchartNodeTypes } from '../nodes';
+import { useShallow } from 'zustand/react/shallow';
 
 const API_BASE = 'http://localhost:8000';
 type FilterType = 'all' | 'function' | 'module' | 'class' | 'external' | 'entrypoint' | 'method';
@@ -53,6 +55,14 @@ function DependencyNode({ data, selected }: { data: Record<string, unknown>; sel
   const label = String(data.name ?? data.label ?? '');
   const signature = String(data.signature ?? '');
   const docstring = String(data.docstring ?? '');
+  const failureSeverity = String(data.failure_severity ?? '');
+  const failureClasses = failureSeverity === 'failed'
+    ? 'border-rose-400 bg-rose-500/20 shadow-rose-400/30'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400 bg-orange-500/16'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300 bg-amber-500/12'
+        : '';
 
   return (
     <div
@@ -61,7 +71,7 @@ function DependencyNode({ data, selected }: { data: Record<string, unknown>; sel
           ? 'border-blue-400 bg-blue-500/15 shadow-blue-400/20'
           : data.isTrail
             ? 'border-blue-300/60 bg-blue-500/8'
-            : 'border-white/10 bg-slate-900/90'
+            : failureClasses || 'border-white/10 bg-slate-900/90'
       }`}
       style={{ opacity: data.isDimmed ? 0.3 : 1 }}
       title={[signature, docstring].filter(Boolean).join('\n') || label}
@@ -119,8 +129,31 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     goSelectionForward,
     dependencyExecutionActiveNodeId,
     dependencyExecutionTrail,
-  } = useStore();
+    failedDependencyNodeIds,
+    failureAffectedByDependencyNode,
+    isLoadingFailureSimulation,
+    failureBlastRadius,
+  } = useStore(useShallow((state) => ({
+    dependencyData: state.dependencyData,
+    dependencySearchResults: state.dependencySearchResults,
+    isLoadingDependency: state.isLoadingDependency,
+    dependencyError: state.dependencyError,
+    analysisJobId: state.analysisJobId,
+    selectedNodeId: state.selectedNodeId,
+    selectNode: state.selectNode,
+    selectionHistory: state.selectionHistory,
+    selectionHistoryIndex: state.selectionHistoryIndex,
+    goSelectionBack: state.goSelectionBack,
+    goSelectionForward: state.goSelectionForward,
+    dependencyExecutionActiveNodeId: state.dependencyExecutionActiveNodeId,
+    dependencyExecutionTrail: state.dependencyExecutionTrail,
+    failedDependencyNodeIds: state.failedDependencyNodeIds,
+    failureAffectedByDependencyNode: state.failureAffectedByDependencyNode,
+    isLoadingFailureSimulation: state.isLoadingFailureSimulation,
+    failureBlastRadius: state.failureBlastRadius,
+  })));
   const { searchDependency, isSearching } = useDependencyAPI();
+  const { simulateFailure, resetFailureSimulation, exportFailureReport } = useFailureSimulationAPI();
 
   const tokenRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -235,10 +268,21 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           ...(node.data as Record<string, unknown>),
           isDimmed: activeNodeId ? !relationSet.has(node.id) : false,
           isTrail: executionTrailSet.has(node.id) && node.id !== activeNodeId,
+          failure_severity: failedDependencyNodeIds.includes(node.id)
+            ? 'failed'
+            : failureAffectedByDependencyNode[node.id],
         },
       })),
     ];
-  }, [clusterNodes, filteredBaseNodes, activeNodeId, relationSet, executionTrailSet]);
+  }, [
+    clusterNodes,
+    filteredBaseNodes,
+    activeNodeId,
+    relationSet,
+    executionTrailSet,
+    failedDependencyNodeIds,
+    failureAffectedByDependencyNode,
+  ]);
 
   const graphEdges = useMemo<Edge[]>(() => {
     if (!dependencyData) return [];
@@ -275,8 +319,9 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
       const node = filteredBaseNodes.find((n) => n.id === nodeId) || dependencyData?.nodes.find((n) => n.id === nodeId);
       if (!node) return;
       const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
-      const selectionId = typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id;
-      selectNode(selectionId, 'dependency');
+      if (typeof irNodeId === 'string' && irNodeId.trim()) {
+        selectNode(irNodeId.trim(), 'dependency');
+      }
       if (instance) {
         instance.setCenter(node.position.x, node.position.y, { zoom: 1.2, duration: 300 });
       }
@@ -372,13 +417,26 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         return;
       }
       const irNodeId = (node.data as Record<string, unknown>)?.ir_node_id;
-      const selectionId = typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id;
-      selectNode(selectionId, 'dependency');
-      if (typeof irNodeId === 'string' && irNodeId) {
-        void fetchFlowchartForNode(irNodeId, true);
+      if (typeof irNodeId === 'string' && irNodeId.trim()) {
+        selectNode(irNodeId.trim(), 'dependency');
+        void fetchFlowchartForNode(irNodeId.trim(), true);
       }
     },
     [fetchFlowchartForNode, selectNode]
+  );
+
+  const onNodeContextMenu: NodeMouseHandler = useCallback(
+    (event, node) => {
+      event.preventDefault();
+      if (node.type === 'cluster') return;
+      const nodeId = String(node.id ?? '').trim();
+      if (!nodeId) return;
+      const nextFailed = event.shiftKey
+        ? [...new Set([...failedDependencyNodeIds, nodeId])]
+        : [nodeId];
+      void simulateFailure(nextFailed);
+    },
+    [failedDependencyNodeIds, simulateFailure]
   );
 
   const onResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -430,8 +488,8 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
   const openFlowchart = () => {
     if (!activeNode) return;
     const irNodeId = (activeNode.data as Record<string, unknown>)?.ir_node_id;
-    if (typeof irNodeId === 'string' && irNodeId) {
-      void fetchFlowchartForNode(irNodeId, true);
+    if (typeof irNodeId === 'string' && irNodeId.trim()) {
+      void fetchFlowchartForNode(irNodeId.trim(), true);
     }
   };
 
@@ -486,6 +544,30 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         >
           {collapseClassMembers ? 'Expand Class Members' : 'Collapse Class Members'}
         </button>
+        <button
+          onClick={resetFailureSimulation}
+          className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-md border bg-white/5 border-white/10 text-white/60"
+          title="Reset failure simulation highlights"
+        >
+          Reset Failure
+        </button>
+        <button
+          onClick={exportFailureReport}
+          className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-md border bg-white/5 border-white/10 text-white/60"
+          title="Export failure impact report as JSON"
+        >
+          Export Failure JSON
+        </button>
+        {(failedDependencyNodeIds.length > 0 || failureBlastRadius > 0) && (
+          <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-md border border-rose-400/40 bg-rose-500/15 text-rose-100">
+            Blast Radius {failureBlastRadius}
+          </span>
+        )}
+        {isLoadingFailureSimulation && (
+          <span className="text-[10px] uppercase tracking-widest px-2 py-1 rounded-md border border-orange-400/40 bg-orange-500/15 text-orange-100">
+            Simulating...
+          </span>
+        )}
       </div>
 
       {dependencySearchResults.length > 0 && searchQuery.trim() && (
@@ -508,6 +590,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         edges={graphEdges}
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
+        onNodeContextMenu={onNodeContextMenu}
         onInit={setInstance}
         fitView
         fitViewOptions={{ padding: 0.18 }}
@@ -520,6 +603,10 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           nodeColor={(node) => {
             const data = (node.data as Record<string, unknown>) || {};
             const t = String(data.type ?? node.type ?? '');
+            const failureSeverity = String(data.failure_severity ?? '');
+            if (failureSeverity === 'failed') return '#fb7185';
+            if (failureSeverity === 'directly_affected') return '#fb923c';
+            if (failureSeverity === 'transitively_affected') return '#fbbf24';
             if (node.id === activeNodeId) return '#60a5fa';
             if (executionTrailSet.has(node.id)) return '#93c5fd';
             return TYPE_META[t]?.color ?? '#94a3b8';
@@ -560,6 +647,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
             <div>ƒ Function / m Method / 📦 Module / C Class / ⚡ External / ▶ Entrypoint</div>
             <div>Calls: solid | Imports: dashed | Inherits: dotted | Depends On: orange | Triggers: animated</div>
             <div>Execution sync: active node blue, visited trail light-blue.</div>
+            <div>Failure simulation: failed=red, direct=orange, transitive=yellow. Right-click node to mark failed.</div>
           </div>
         </Panel>
       </ReactFlow>
@@ -583,6 +671,12 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
             className="mt-4 w-full px-3 py-2 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-xs font-semibold disabled:opacity-40"
           >
             Open In Side Flowchart
+          </button>
+          <button
+            onClick={() => void simulateFailure([activeNode.id])}
+            className="mt-2 w-full px-3 py-2 rounded-lg bg-rose-600/70 hover:bg-rose-500 text-white text-xs font-semibold"
+          >
+            Mark As Failed
           </button>
           <div className="mt-6 text-[10px] text-white/35">
             Legend: Calls=solid, Imports=dashed, Inherits=dotted, Depends On=orange, Triggers=animated.

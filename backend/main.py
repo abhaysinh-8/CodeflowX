@@ -11,7 +11,7 @@ from fastapi import (
     Form,
 )
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -22,6 +22,7 @@ import uuid as _uuid
 import hashlib
 import time
 import json
+from dataclasses import dataclass, field
 
 import sys
 import os
@@ -77,10 +78,31 @@ class ExecutionRequest(BaseModel):
     file: str = "main"
 
 
+class FailureSimulationRequest(BaseModel):
+    job_id: str
+    failed_function_id: Optional[str] = None
+    failed_function_ids: List[str] = []
+
+
 DEPENDENCY_GRAPH_CACHE: Dict[str, Dict[str, Any]] = {}
 EXECUTION_JOB_STORE = ExecutionJobStore()
 COVERAGE_RESULT_CACHE: Dict[str, Dict[str, Any]] = {}
 COVERAGE_CACHE_TTL_SECONDS = 1800
+
+
+@dataclass
+class AnalysisContext:
+    code: str
+    language: str
+    module_path: str
+    job_id: str
+    ir_tree: Any
+    ir_payload: Dict[str, Any]
+    dependency_result: Dict[str, Any] = field(default_factory=dict)
+    execution_result: Dict[str, Any] = field(default_factory=dict)
+    flowchart_result: Dict[str, Any] = field(default_factory=dict)
+    coverage_result: Dict[str, Any] = field(default_factory=dict)
+    ir_node_lookup: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 class AnalyzeResultStore:
@@ -179,6 +201,15 @@ def _cleanup_coverage_cache() -> None:
     for key in stale_keys:
         COVERAGE_RESULT_CACHE.pop(key, None)
 
+
+def _normalize_optional_id(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() == "none":
+        return ""
+    return text
+
 # ---------------------------------------------------------------------------
 # Helpers — shared pipeline pieces for flowchart/dependency/execution/coverage
 # ---------------------------------------------------------------------------
@@ -269,6 +300,7 @@ def _build_dependency_from_ir(
         "nodes": nodes,
         "edges": result["edges"],
         "clusters": result["clusters"],
+        "call_resolution_map": result.get("call_resolution_map", {}),
     }
 
 
@@ -278,9 +310,9 @@ def _map_coverage_by_ir_node_id(
 ) -> Dict[str, Dict[str, Any]]:
     coverage_by_ir: Dict[str, Dict[str, Any]] = {}
     for node in flow_nodes:
-        node_id = str(node.get("id", "")).strip()
+        node_id = _normalize_optional_id(node.get("id"))
         node_data = node.get("data", {}) if isinstance(node.get("data"), dict) else {}
-        ir_node_id = str(node_data.get("ir_node_id", "")).strip()
+        ir_node_id = _normalize_optional_id(node_data.get("ir_node_id"))
         if not node_id or not ir_node_id:
             continue
         coverage = node_coverage_map.get(node_id)
@@ -327,9 +359,9 @@ def _build_ir_node_lookup(
     lookup: Dict[str, Dict[str, Any]] = {}
 
     for flow_node in flow_nodes:
-        node_id = str(flow_node.get("id", "")).strip()
+        node_id = _normalize_optional_id(flow_node.get("id"))
         data = flow_node.get("data", {}) if isinstance(flow_node.get("data"), dict) else {}
-        ir_node_id = str(data.get("ir_node_id", "")).strip()
+        ir_node_id = _normalize_optional_id(data.get("ir_node_id"))
         if not ir_node_id:
             continue
         entry = lookup.setdefault(ir_node_id, {"dependency_node_ids": []})
@@ -340,8 +372,8 @@ def _build_ir_node_lookup(
             entry["source_end"] = data.get("source_end")
 
     for dep_node in dependency_nodes:
-        dep_id = str(dep_node.get("id", "")).strip()
-        ir_node_id = str(dep_node.get("ir_node_id", "")).strip()
+        dep_id = _normalize_optional_id(dep_node.get("id"))
+        ir_node_id = _normalize_optional_id(dep_node.get("ir_node_id"))
         if not ir_node_id or not dep_id:
             continue
         entry = lookup.setdefault(ir_node_id, {"dependency_node_ids": []})
@@ -354,6 +386,103 @@ def _build_ir_node_lookup(
         entry["coverage_status"] = coverage.get("coverage_status")
 
     return lookup
+
+
+def _collect_ir_node_ids(ir_payload: Dict[str, Any]) -> Set[str]:
+    node_ids: Set[str] = set()
+    stack: List[Dict[str, Any]] = [ir_payload]
+    while stack:
+        current = stack.pop()
+        node_id = str(current.get("id", "")).strip()
+        if node_id:
+            node_ids.add(node_id)
+        children = current.get("children", [])
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if isinstance(child, dict):
+                stack.append(child)
+    return node_ids
+
+
+def _validate_cross_module_consistency(
+    *,
+    ir_payload: Dict[str, Any],
+    flow_nodes: List[Dict[str, Any]],
+    dependency_nodes: List[Dict[str, Any]],
+    execution_steps: List[Dict[str, Any]],
+    coverage_node_coverage_map: Dict[str, Dict[str, Any]],
+    ir_node_lookup: Dict[str, Dict[str, Any]],
+    call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> None:
+    ir_ids = _collect_ir_node_ids(ir_payload)
+    errors: List[str] = []
+
+    for flow_node in flow_nodes:
+        data = flow_node.get("data", {}) if isinstance(flow_node.get("data"), dict) else {}
+        ir_node_id = _normalize_optional_id(data.get("ir_node_id"))
+        if ir_node_id and ir_node_id not in ir_ids:
+            errors.append(f"flowchart node references unknown ir_node_id={ir_node_id}")
+        if ir_node_id:
+            lookup_entry = ir_node_lookup.get(ir_node_id)
+            if not lookup_entry:
+                errors.append(f"lookup missing flowchart ir_node_id={ir_node_id}")
+            elif _normalize_optional_id(lookup_entry.get('flowchart_node_id')) != _normalize_optional_id(flow_node.get("id")):
+                errors.append(f"lookup flowchart_node_id mismatch for ir_node_id={ir_node_id}")
+
+    for dep_node in dependency_nodes:
+        dep_id = _normalize_optional_id(dep_node.get("id"))
+        ir_node_id = _normalize_optional_id(dep_node.get("ir_node_id"))
+        if not ir_node_id:
+            continue
+        if ir_node_id not in ir_ids:
+            errors.append(f"dependency node {dep_id} references unknown ir_node_id={ir_node_id}")
+            continue
+        lookup_entry = ir_node_lookup.get(ir_node_id)
+        if not lookup_entry:
+            errors.append(f"lookup missing dependency ir_node_id={ir_node_id}")
+            continue
+        dep_ids = lookup_entry.get("dependency_node_ids", [])
+        if dep_id not in dep_ids:
+            errors.append(f"lookup missing dependency_node_id={dep_id} for ir_node_id={ir_node_id}")
+
+    for ir_node_id in coverage_node_coverage_map.keys():
+        if ir_node_id not in ir_ids:
+            errors.append(f"coverage map references unknown ir_node_id={ir_node_id}")
+
+    for ir_node_id in ir_node_lookup.keys():
+        if ir_node_id not in ir_ids:
+            errors.append(f"lookup key references unknown ir_node_id={ir_node_id}")
+
+    for step in execution_steps:
+        active_node_id = _normalize_optional_id(step.get("active_node_id"))
+        active_ir_node_id = active_node_id[5:] if active_node_id.startswith("node-") else active_node_id
+        if active_ir_node_id and active_ir_node_id not in ir_ids:
+            errors.append(f"execution step references unknown active ir_node_id={active_ir_node_id}")
+        if active_ir_node_id and active_ir_node_id not in ir_node_lookup:
+            errors.append(f"execution step ir_node_id={active_ir_node_id} missing from lookup")
+
+        current_function_id = _normalize_optional_id(step.get("currently_executing_function_id"))
+        if current_function_id and current_function_id not in ir_ids:
+            errors.append(
+                "execution currently_executing_function_id references unknown "
+                f"ir_node_id={current_function_id}"
+            )
+
+    for call_ir_id, record in (call_resolution_map or {}).items():
+        normalized_call_ir_id = _normalize_optional_id(call_ir_id)
+        if normalized_call_ir_id not in ir_ids:
+            errors.append(f"call resolution references unknown call ir_node_id={call_ir_id}")
+        target_ir_id = _normalize_optional_id(record.get("target_ir_node_id"))
+        if target_ir_id and target_ir_id not in ir_ids:
+            errors.append(f"call resolution target references unknown ir_node_id={target_ir_id}")
+
+    if errors:
+        sample = "; ".join(errors[:10])
+        raise ValueError(
+            "Cross-module consistency validation failed "
+            f"({len(errors)} issue(s)): {sample}"
+        )
 
 
 def _run_flowchart_pipeline(code: str, language: str) -> Dict[str, Any]:
@@ -388,6 +517,7 @@ def _run_dependency_pipeline(code: str, language: str, module_path: str = "main"
         "nodes": result["nodes"],
         "edges": result["edges"],
         "clusters": result["clusters"],
+        "call_resolution_map": result.get("call_resolution_map", {}),
     }
 
 
@@ -396,16 +526,168 @@ def _run_execution_pipeline(
     code: str = "",
     file: str = "main",
     step_limit: int | None = None,
+    call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     steps, worker = run_execution_job(
         ir_data=ir_data,
         code=code,
         file=file,
         step_limit=step_limit,
+        call_resolution_map=call_resolution_map or {},
     )
     return {
         "steps": steps,
         "worker": worker,
+    }
+
+
+def _normalize_failed_function_identifiers(body: FailureSimulationRequest) -> List[str]:
+    ordered: List[str] = []
+    if body.failed_function_id:
+        ordered.append(body.failed_function_id)
+    ordered.extend(body.failed_function_ids or [])
+
+    deduped: List[str] = []
+    seen: Set[str] = set()
+    for raw in ordered:
+        item = str(raw or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def _simulate_failure_from_analyze_cache(
+    analyze_payload: Dict[str, Any],
+    failed_identifiers: List[str],
+) -> Dict[str, Any]:
+    dependency = analyze_payload.get("dependency", {}) if isinstance(analyze_payload, dict) else {}
+    dependency_nodes = dependency.get("nodes", []) if isinstance(dependency, dict) else []
+    dependency_edges = dependency.get("edges", []) if isinstance(dependency, dict) else []
+    call_resolution_map = dependency.get("call_resolution_map", {}) if isinstance(dependency, dict) else {}
+    ir_lookup = analyze_payload.get("ir_node_lookup", {}) if isinstance(analyze_payload, dict) else {}
+    flowchart = analyze_payload.get("flowchart", {}) if isinstance(analyze_payload, dict) else {}
+    flow_edges = flowchart.get("edges", []) if isinstance(flowchart, dict) else []
+
+    dep_by_id: Dict[str, Dict[str, Any]] = {}
+    dep_by_ir: Dict[str, Dict[str, Any]] = {}
+    for node in dependency_nodes:
+        node_id = str(node.get("id", "")).strip()
+        if node_id:
+            dep_by_id[node_id] = node
+        ir_node_id = str(node.get("ir_node_id", "")).strip()
+        if ir_node_id:
+            dep_by_ir[ir_node_id] = node
+
+    failed_dep_ids: List[str] = []
+    for identifier in failed_identifiers:
+        target_node = dep_by_id.get(identifier) or dep_by_ir.get(identifier)
+        if not target_node:
+            continue
+        node_type = str(target_node.get("type", "")).strip()
+        if node_type not in {"function", "method", "entrypoint"}:
+            continue
+        node_id = str(target_node.get("id", "")).strip()
+        if node_id and node_id not in failed_dep_ids:
+            failed_dep_ids.append(node_id)
+
+    if not failed_dep_ids:
+        raise ValueError(
+            "No matching function/method dependency nodes found for failed_function_id(s)."
+        )
+
+    reverse_calls: Dict[str, Set[str]] = {}
+    for edge in dependency_edges:
+        edge_type = str(edge.get("type", "")).strip()
+        if edge_type != "calls":
+            continue
+        source = str(edge.get("source", "")).strip()
+        target = str(edge.get("target", "")).strip()
+        if not source or not target:
+            continue
+        reverse_calls.setdefault(target, set()).add(source)
+
+    direct_affected: Set[str] = set()
+    for failed_id in failed_dep_ids:
+        direct_affected.update(reverse_calls.get(failed_id, set()))
+    direct_affected -= set(failed_dep_ids)
+
+    transitive_affected: Set[str] = set()
+    frontier = set(direct_affected)
+    blocked = set(failed_dep_ids) | set(direct_affected)
+    while frontier:
+        current = frontier.pop()
+        callers = reverse_calls.get(current, set())
+        for caller in callers:
+            if caller in blocked or caller in transitive_affected:
+                continue
+            transitive_affected.add(caller)
+            frontier.add(caller)
+
+    severity_by_node_id: Dict[str, str] = {}
+    for node_id in failed_dep_ids:
+        severity_by_node_id[node_id] = "failed"
+    for node_id in sorted(direct_affected):
+        severity_by_node_id.setdefault(node_id, "directly_affected")
+    for node_id in sorted(transitive_affected):
+        severity_by_node_id.setdefault(node_id, "transitively_affected")
+
+    affected_nodes: List[Dict[str, Any]] = []
+    failed_ir_ids: Set[str] = set()
+    for node_id, severity in severity_by_node_id.items():
+        node = dep_by_id.get(node_id, {})
+        ir_node_id = str(node.get("ir_node_id", "")).strip()
+        if ir_node_id and severity == "failed":
+            failed_ir_ids.add(ir_node_id)
+        lookup_entry = ir_lookup.get(ir_node_id, {}) if ir_node_id else {}
+        flowchart_node_id = str(lookup_entry.get("flowchart_node_id", "")).strip() or None
+        affected_nodes.append(
+            {
+                "dependency_node_id": node_id,
+                "ir_node_id": ir_node_id or None,
+                "flowchart_node_id": flowchart_node_id,
+                "name": str(node.get("name", "")).strip() or None,
+                "node_type": str(node.get("type", "")).strip() or None,
+                "severity": severity,
+            }
+        )
+
+    unreachable_flow_nodes: Set[str] = set()
+    if isinstance(call_resolution_map, dict) and failed_ir_ids:
+        failed_call_ir_ids = [
+            call_ir_id
+            for call_ir_id, rec in call_resolution_map.items()
+            if str(rec.get("target_ir_node_id", "")).strip() in failed_ir_ids
+        ]
+        call_flow_ids: Set[str] = set()
+        for call_ir_id in failed_call_ir_ids:
+            entry = ir_lookup.get(call_ir_id, {})
+            flow_node_id = str(entry.get("flowchart_node_id", "")).strip()
+            if flow_node_id:
+                call_flow_ids.add(flow_node_id)
+                unreachable_flow_nodes.add(flow_node_id)
+        for edge in flow_edges:
+            source = str(edge.get("source", "")).strip()
+            target = str(edge.get("target", "")).strip()
+            if source in call_flow_ids and target:
+                unreachable_flow_nodes.add(target)
+
+    blast_radius = len(direct_affected) + len(transitive_affected)
+    return {
+        "failed_function_ids": failed_dep_ids,
+        "affected_nodes": sorted(
+            affected_nodes,
+            key=lambda n: (
+                {"failed": 0, "directly_affected": 1, "transitively_affected": 2}.get(
+                    str(n.get("severity", "")),
+                    3,
+                ),
+                str(n.get("name", "")),
+            ),
+        ),
+        "blast_radius": blast_radius,
+        "unreachable_branches": sorted(unreachable_flow_nodes),
     }
 
 
@@ -461,7 +743,7 @@ async def generate_flowchart(request: Request, body: CodeParseRequest, user: dic
 async def analyze_full(request: Request, body: CodeParseRequest, user: dict = Depends(get_current_user)):
     """
     Unified analysis pipeline:
-    parse once -> IR once -> run flowchart/dependency/execution in parallel -> attach coverage context.
+    IR -> dependency -> execution -> flowchart -> coverage, then strict consistency validation.
     """
     if not is_language_supported(body.language):
         return {
@@ -477,47 +759,61 @@ async def analyze_full(request: Request, body: CodeParseRequest, user: dict = De
         if parsed.get("status") == "error":
             return parsed
 
-        ir_tree = parsed["ir_tree"]
-        ir_payload = parsed["ir"]
+        context = AnalysisContext(
+            code=body.code,
+            language=body.language,
+            module_path=module_path,
+            job_id=job_id,
+            ir_tree=parsed["ir_tree"],
+            ir_payload=parsed["ir"],
+        )
 
-        flowchart_task = loop.run_in_executor(None, _build_flowchart_from_ir, ir_tree)
-        dependency_task = loop.run_in_executor(
+        context.dependency_result = await loop.run_in_executor(
             None,
             _build_dependency_from_ir,
-            ir_tree,
+            context.ir_tree,
             body.code,
             body.language,
             module_path,
             job_id,
         )
-        execution_task = loop.run_in_executor(
+        context.execution_result = await loop.run_in_executor(
             None,
             _run_execution_pipeline,
-            ir_payload,
+            context.ir_payload,
             body.code,
             module_path,
             None,
+            context.dependency_result.get("call_resolution_map", {}),
+        )
+        context.flowchart_result = await loop.run_in_executor(
+            None,
+            _build_flowchart_from_ir,
+            context.ir_tree,
         )
 
-        flowchart_result, dependency_result, execution_result = await asyncio.gather(
-            flowchart_task,
-            dependency_task,
-            execution_task,
-        )
-
-        coverage_result = await loop.run_in_executor(
+        context.coverage_result = await loop.run_in_executor(
             None,
             _build_default_coverage_payload,
-            flowchart_result.get("nodes", []),
-            flowchart_result.get("edges", []),
+            context.flowchart_result.get("nodes", []),
+            context.flowchart_result.get("edges", []),
         )
 
-        dependency_nodes = dependency_result.get("nodes", [])
+        dependency_nodes = context.dependency_result.get("nodes", [])
 
-        ir_node_lookup = _build_ir_node_lookup(
-            flow_nodes=flowchart_result.get("nodes", []),
+        context.ir_node_lookup = _build_ir_node_lookup(
+            flow_nodes=context.flowchart_result.get("nodes", []),
             dependency_nodes=dependency_nodes,
-            coverage_node_coverage_map=coverage_result.get("coverage_node_coverage_map", {}),
+            coverage_node_coverage_map=context.coverage_result.get("coverage_node_coverage_map", {}),
+        )
+        _validate_cross_module_consistency(
+            ir_payload=context.ir_payload,
+            flow_nodes=context.flowchart_result.get("nodes", []),
+            dependency_nodes=dependency_nodes,
+            execution_steps=context.execution_result.get("steps", []),
+            coverage_node_coverage_map=context.coverage_result.get("coverage_node_coverage_map", {}),
+            ir_node_lookup=context.ir_node_lookup,
+            call_resolution_map=context.dependency_result.get("call_resolution_map", {}),
         )
 
         result_payload = {
@@ -526,33 +822,34 @@ async def analyze_full(request: Request, body: CodeParseRequest, user: dict = De
             "language": body.language,
             "support_level": get_support_level(body.language),
             "flowchart": {
-                "ir": ir_payload,
-                "nodes": flowchart_result.get("nodes", []),
-                "edges": flowchart_result.get("edges", []),
+                "ir": context.ir_payload,
+                "nodes": context.flowchart_result.get("nodes", []),
+                "edges": context.flowchart_result.get("edges", []),
             },
             "dependency": {
-                "graph_id": dependency_result.get("graph_id", ""),
+                "graph_id": context.dependency_result.get("graph_id", ""),
                 "nodes": dependency_nodes,
-                "edges": dependency_result.get("edges", []),
-                "clusters": dependency_result.get("clusters", []),
+                "edges": context.dependency_result.get("edges", []),
+                "clusters": context.dependency_result.get("clusters", []),
+                "call_resolution_map": context.dependency_result.get("call_resolution_map", {}),
             },
             "execution": {
-                "total_steps": len(execution_result.get("steps", [])),
-                "execution_worker": execution_result.get("worker", "local"),
-                "steps": execution_result.get("steps", []),
+                "total_steps": len(context.execution_result.get("steps", [])),
+                "execution_worker": context.execution_result.get("worker", "local"),
+                "steps": context.execution_result.get("steps", []),
             },
             "coverage": {
-                "format": coverage_result.get("format", "Native"),
-                "node_coverage_map": coverage_result.get("node_coverage_map", {}),
-                "coverage_node_coverage_map": coverage_result.get("coverage_node_coverage_map", {}),
-                "summary": coverage_result.get("summary", {}),
-                "report_json": coverage_result.get("report_json", {}),
+                "format": context.coverage_result.get("format", "Native"),
+                "node_coverage_map": context.coverage_result.get("node_coverage_map", {}),
+                "coverage_node_coverage_map": context.coverage_result.get("coverage_node_coverage_map", {}),
+                "summary": context.coverage_result.get("summary", {}),
+                "report_json": context.coverage_result.get("report_json", {}),
             },
-            "ir_node_lookup": ir_node_lookup,
+            "ir_node_lookup": context.ir_node_lookup,
             # Compatibility fields retained during migration.
-            "ir": ir_payload,
-            "nodes": flowchart_result.get("nodes", []),
-            "edges": flowchart_result.get("edges", []),
+            "ir": context.ir_payload,
+            "nodes": context.flowchart_result.get("nodes", []),
+            "edges": context.flowchart_result.get("edges", []),
         }
 
         await ANALYZE_RESULT_STORE.save_result(job_id, result_payload)
@@ -613,6 +910,39 @@ async def get_analyze_flowchart_for_node(
         "focus_ir_node_id": ir_node_id,
         "focus_flowchart_node_id": focus_flowchart_node_id,
         "cache_hit": True,
+    }
+
+
+@app.post("/api/v1/simulate/failure")
+@limiter.limit("20/minute")
+async def simulate_failure(
+    request: Request,
+    body: FailureSimulationRequest,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Static failure blast-radius simulation over cached dependency graph.
+    """
+    cached = await ANALYZE_RESULT_STORE.get_result(body.job_id)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Analysis job not found or expired")
+
+    failed_identifiers = _normalize_failed_function_identifiers(body)
+    if not failed_identifiers:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide failed_function_id or failed_function_ids with at least one value.",
+        )
+
+    try:
+        simulation = _simulate_failure_from_analyze_cache(cached, failed_identifiers)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "status": "success",
+        "job_id": body.job_id,
+        **simulation,
     }
 
 

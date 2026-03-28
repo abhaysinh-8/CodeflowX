@@ -18,6 +18,7 @@ import { nodeTypes } from '../nodes';
 import { useStore } from '../../store/useStore';
 import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 import { useFlowchartAPI } from '../../hooks/useFlowchartAPI';
+import { useShallow } from 'zustand/react/shallow';
 
 const DEMO_NODES: Node[] = [
   { id: 't1', type: 'terminal', data: { label: 'Start', terminal_type: 'start' }, position: { x: 200, y: 20 } },
@@ -69,7 +70,24 @@ export default function FlowchartCanvas() {
     coverageData,
     coverageOverlayEnabled,
     coverageFilter,
-  } = useStore();
+    failureAffectedByIrNode,
+    failureUnreachableFlowchartNodeIds,
+  } = useStore(useShallow((state) => ({
+    flowchartData: state.flowchartData,
+    isLoadingFlowchart: state.isLoadingFlowchart,
+    flowchartProgress: state.flowchartProgress,
+    flowchartError: state.flowchartError,
+    selectedNodeId: state.selectedNodeId,
+    selectionPulseNodeId: state.selectionPulseNodeId,
+    selectionPulseToken: state.selectionPulseToken,
+    selectionPulseAt: state.selectionPulseAt,
+    selectNode: state.selectNode,
+    coverageData: state.coverageData,
+    coverageOverlayEnabled: state.coverageOverlayEnabled,
+    coverageFilter: state.coverageFilter,
+    failureAffectedByIrNode: state.failureAffectedByIrNode,
+    failureUnreachableFlowchartNodeIds: state.failureUnreachableFlowchartNodeIds,
+  })));
   const { analyze } = useFlowchartAPI();
   const [instance, setInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
@@ -81,6 +99,10 @@ export default function FlowchartCanvas() {
   const coverageMapByIr = useMemo(
     () => coverageData?.coverage_node_coverage_map ?? {},
     [coverageData?.coverage_node_coverage_map]
+  );
+  const unreachableSet = useMemo(
+    () => new Set(failureUnreachableFlowchartNodeIds),
+    [failureUnreachableFlowchartNodeIds]
   );
 
   useEffect(() => {
@@ -97,6 +119,8 @@ export default function FlowchartCanvas() {
       const irNodeId = String(nodeData.ir_node_id ?? '').trim();
       const mapRecord = (irNodeId ? coverageMapByIr[irNodeId] : undefined) ?? coverageMapByNode[node.id];
       const status = normalizeCoverageStatus(nodeData.coverage_status ?? mapRecord?.coverage_status);
+      const failureSeverity = irNodeId ? failureAffectedByIrNode[irNodeId] : undefined;
+      const failureUnreachable = unreachableSet.has(node.id);
       if (coverageOverlayEnabled && status) {
         nodeData.coverage_status = status;
         nodeData.coverage_overlay = true;
@@ -107,6 +131,8 @@ export default function FlowchartCanvas() {
       } else {
         nodeData.coverage_overlay = false;
       }
+      nodeData.failure_severity = failureSeverity;
+      nodeData.failure_unreachable = failureUnreachable;
       nodeData.cross_selected = Boolean(selectedNodeId && irNodeId && irNodeId === selectedNodeId);
       nodeData.cross_pulse = Boolean(
         selectionPulseNodeId
@@ -135,6 +161,8 @@ export default function FlowchartCanvas() {
     selectionPulseNodeId,
     selectionPulseToken,
     clockMs,
+    failureAffectedByIrNode,
+    unreachableSet,
   ]);
 
   const visibleNodeIds = useMemo(() => new Set(displayNodes.map((node) => node.id)), [displayNodes]);
@@ -169,7 +197,9 @@ export default function FlowchartCanvas() {
 
   const onNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
     const irNodeId = (node.data as Record<string, unknown> | undefined)?.ir_node_id;
-    selectNode(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id, 'flowchart');
+    if (typeof irNodeId === 'string' && irNodeId.trim()) {
+      selectNode(irNodeId.trim(), 'flowchart');
+    }
   }, [selectNode]);
 
   const nodesWithTooltip = nodes.map((n) => ({

@@ -14,6 +14,8 @@ export interface TerminalNodeData extends Record<string, unknown> {
   coverage_overlay?: boolean;
   cross_selected?: boolean;
   cross_pulse?: boolean;
+  failure_severity?: string;
+  failure_unreachable?: boolean;
 }
 
 const TerminalNode = ({ id, data, selected }: NodeProps) => {
@@ -23,12 +25,25 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
   const coverageStatus = normalizeCoverageStatus(nodeData.coverage_status);
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
+  const failureSeverity = typeof nodeData.failure_severity === 'string' ? nodeData.failure_severity : '';
+  const failureClass = failureSeverity === 'failed'
+    ? 'border-rose-400 text-rose-100'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400 text-orange-100'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300 text-amber-100'
+        : nodeData.failure_unreachable
+          ? 'border-rose-300'
+          : '';
 
   return (
     <div
       onClick={() => {
-        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
-        selectNode(irNodeId, 'flowchart');
+        void id;
+        const irNodeId = typeof nodeData.ir_node_id === 'string' ? nodeData.ir_node_id.trim() : '';
+        if (irNodeId) {
+          selectNode(irNodeId, 'flowchart');
+        }
       }}
       aria-label={`${isStart ? 'Start' : 'End'} terminal node`}
       title={nodeData.label}
@@ -37,6 +52,7 @@ const TerminalNode = ({ id, data, selected }: NodeProps) => {
         transition-all duration-200 shadow-lg min-w-[100px] text-center
         ${nodeData.is_active ? (isStart ? 'ring-2 ring-emerald-400 ring-offset-1' : 'ring-2 ring-rose-400 ring-offset-1') : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${failureClass}
         ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
         ${selected
           || nodeData.cross_selected

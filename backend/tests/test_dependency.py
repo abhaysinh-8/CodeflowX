@@ -82,3 +82,47 @@ def beta():
 
     assert any(node["id"] == alpha["id"] for node in subgraph["nodes"])
     assert len(subgraph["edges"]) >= 1
+
+
+def test_dependency_resolution_prefers_local_then_import_aware_external():
+    code = """
+import numpy as np
+from tools.shared import external_helper as ext_helper
+
+def helper():
+    return 1
+
+def main():
+    x = helper()
+    y = np.array([1, 2, 3])
+    z = ext_helper()
+    return x
+"""
+    result = _run_dependency_pipeline(code=code, language="python", module_path="imports.py")
+    assert result["status"] == "success"
+
+    nodes = result["nodes"]
+    edges = result["edges"]
+    call_resolution_map = result.get("call_resolution_map", {})
+
+    helper_node = next(node for node in nodes if node["name"] == "helper")
+    main_node = next(node for node in nodes if node["name"] == "main")
+
+    assert any(
+        edge["source"] == main_node["id"]
+        and edge["target"] == helper_node["id"]
+        and edge["type"] == "calls"
+        for edge in edges
+    )
+    assert any(
+        node["type"] == "external" and node["name"] in {"numpy", "tools"}
+        for node in nodes
+    )
+    assert any(
+        record.get("resolution_type") == "local_symbol"
+        for record in call_resolution_map.values()
+    )
+    assert any(
+        record.get("resolution_type") == "external"
+        for record in call_resolution_map.values()
+    )

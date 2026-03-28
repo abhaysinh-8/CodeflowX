@@ -16,6 +16,8 @@ export interface DecisionNodeData extends Record<string, unknown> {
   coverage_overlay?: boolean;
   cross_selected?: boolean;
   cross_pulse?: boolean;
+  failure_severity?: string;
+  failure_unreachable?: boolean;
 }
 
 const DecisionNode = ({ id, data, selected }: NodeProps) => {
@@ -25,10 +27,23 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
+  const failureSeverity = typeof nodeData.failure_severity === 'string' ? nodeData.failure_severity : '';
+  const failureBorderClass = failureSeverity === 'failed'
+    ? 'border-rose-400'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300'
+        : nodeData.failure_unreachable
+          ? 'border-rose-300'
+          : '';
 
   const handleClick = () => {
-    const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
-    selectNode(irNodeId, 'flowchart');
+    void id;
+    const irNodeId = typeof nodeData.ir_node_id === 'string' ? nodeData.ir_node_id.trim() : '';
+    if (irNodeId) {
+      selectNode(irNodeId, 'flowchart');
+    }
   };
 
   return (
@@ -51,6 +66,7 @@ const DecisionNode = ({ id, data, selected }: NodeProps) => {
       <div
         className={`
           absolute inset-0 border-2 transition-all
+          ${failureBorderClass}
           ${selected || nodeData.cross_selected ? 'border-yellow-400 bg-yellow-500/20' : 'border-yellow-500/50 bg-yellow-500/10'}
         `}
         style={{ transform: 'rotate(45deg)', borderRadius: 6 }}

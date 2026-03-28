@@ -16,6 +16,8 @@ export interface FunctionNodeData extends Record<string, unknown> {
   coverage_overlay?: boolean;
   cross_selected?: boolean;
   cross_pulse?: boolean;
+  failure_severity?: string;
+  failure_unreachable?: boolean;
 }
 
 const FunctionNode = ({ id, data, selected }: NodeProps) => {
@@ -25,10 +27,23 @@ const FunctionNode = ({ id, data, selected }: NodeProps) => {
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
+  const failureSeverity = typeof nodeData.failure_severity === 'string' ? nodeData.failure_severity : '';
+  const failureClass = failureSeverity === 'failed'
+    ? 'border-rose-400/90 shadow-rose-500/40'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400/80 shadow-orange-500/35'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300/80 shadow-amber-500/25'
+        : nodeData.failure_unreachable
+          ? 'border-rose-300/70'
+          : '';
 
   const handleClick = () => {
-    const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
-    selectNode(irNodeId, 'flowchart');
+    void id;
+    const irNodeId = typeof nodeData.ir_node_id === 'string' ? nodeData.ir_node_id.trim() : '';
+    if (irNodeId) {
+      selectNode(irNodeId, 'flowchart');
+    }
   };
 
   return (
@@ -40,6 +55,7 @@ const FunctionNode = ({ id, data, selected }: NodeProps) => {
         relative min-w-[140px] rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer shadow-lg
         ${nodeData.is_active ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-background' : ''}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${failureClass}
         ${selected || nodeData.cross_selected ? 'border-blue-400/80 shadow-blue-500/30 shadow-xl' : 'border-blue-500/30'}
         ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
       `}

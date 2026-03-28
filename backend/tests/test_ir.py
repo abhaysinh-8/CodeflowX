@@ -181,3 +181,52 @@ def test_find_by_id_utility():
         found = find_by_id(ir, target.id)
         assert found is not None
         assert found.id == target.id
+
+
+def test_generate_uuid_includes_context_entropy():
+    transformer = ASTTransformer("python", "x = 1\n")
+    baseline = transformer.generate_uuid(
+        node_type="assignment",
+        start_byte=0,
+        end_byte=5,
+        parent_type="module",
+        depth=1,
+        path_signature="0.1",
+    )
+    same_context = transformer.generate_uuid(
+        node_type="assignment",
+        start_byte=0,
+        end_byte=5,
+        parent_type="module",
+        depth=1,
+        path_signature="0.1",
+    )
+    different_depth = transformer.generate_uuid(
+        node_type="assignment",
+        start_byte=0,
+        end_byte=5,
+        parent_type="module",
+        depth=2,
+        path_signature="0.1",
+    )
+    different_parent = transformer.generate_uuid(
+        node_type="assignment",
+        start_byte=0,
+        end_byte=5,
+        parent_type="if_statement",
+        depth=1,
+        path_signature="0.1",
+    )
+    different_path = transformer.generate_uuid(
+        node_type="assignment",
+        start_byte=0,
+        end_byte=5,
+        parent_type="module",
+        depth=1,
+        path_signature="0.2",
+    )
+
+    assert baseline == same_context
+    assert baseline != different_depth
+    assert baseline != different_parent
+    assert baseline != different_path

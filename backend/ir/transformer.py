@@ -11,9 +11,20 @@ class ASTTransformer:
         self.source_code = source_code
         self.source_bytes = bytes(source_code, "utf8")
 
-    def generate_uuid(self, node_type: str, start_byte: int, end_byte: int) -> str:
-        """Generates a deterministic UUID based on node properties."""
-        hash_input = f"{self.language}:{node_type}:{start_byte}:{end_byte}"
+    def generate_uuid(
+        self,
+        node_type: str,
+        start_byte: int,
+        end_byte: int,
+        parent_type: str,
+        depth: int,
+        path_signature: str,
+    ) -> str:
+        """Generates a deterministic UUID based on node properties and stable context."""
+        hash_input = (
+            f"{self.language}:{node_type}:{start_byte}:{end_byte}:"
+            f"{parent_type}:{depth}:{path_signature}"
+        )
         hash_val = hashlib.md5(hash_input.encode()).hexdigest()
         return str(uuid.UUID(hash_val))
 
@@ -26,10 +37,21 @@ class ASTTransformer:
         if not node:
             return None
         
-        ir_node = self._visit(node)
+        ir_node = self._visit(
+            node=node,
+            parent_type="root",
+            depth=0,
+            path_signature="0",
+        )
         return ir_node
 
-    def _visit(self, node: Any) -> Optional[IRNode]:
+    def _visit(
+        self,
+        node: Any,
+        parent_type: str,
+        depth: int,
+        path_signature: str,
+    ) -> Optional[IRNode]:
         """Recursive visitor function."""
         if not node.is_named and node.type not in ("{", "}", "(", ")", "[", "]", ";"):
              return None
@@ -40,7 +62,14 @@ class ASTTransformer:
         end_line = node.end_point[0] + 1
         
         ir_node = IRNode(
-            id=self.generate_uuid(node.type, node.start_byte, node.end_byte),
+            id=self.generate_uuid(
+                node_type=node.type,
+                start_byte=node.start_byte,
+                end_byte=node.end_byte,
+                parent_type=parent_type,
+                depth=depth,
+                path_signature=path_signature,
+            ),
             type=node_type,
             language=self.language,
             name=node_name,
@@ -64,7 +93,12 @@ class ASTTransformer:
             if not child.is_named:
                 continue
             
-            child_ir = self._visit(child)
+            child_ir = self._visit(
+                node=child,
+                parent_type=node.type,
+                depth=depth + 1,
+                path_signature=f"{path_signature}.{i}",
+            )
             if child_ir:
                 ir_node.children.append(child_ir)
                 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ChevronRight, ChevronDown, ListTree } from 'lucide-react';
-import { useFlowchartStore } from '../../store/useFlowchartStore';
+import { useStore } from '../../store/useStore';
 
 interface IRNodeData {
   id?: string;
@@ -43,7 +43,8 @@ const IRNodeView = ({ node, depth = 0 }: { node: IRNodeData, depth?: number }) =
 };
 
 export const IRDebugPanel = () => {
-  const { ir } = useFlowchartStore();
+  const irNodes = useStore((state) => state.irNodes);
+  const ir = irNodes[0] ?? null;
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   if (!ir) return null;

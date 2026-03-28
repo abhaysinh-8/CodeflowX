@@ -17,6 +17,8 @@ export interface TryCatchNodeData extends Record<string, unknown> {
   coverage_overlay?: boolean;
   cross_selected?: boolean;
   cross_pulse?: boolean;
+  failure_severity?: string;
+  failure_unreachable?: boolean;
 }
 
 const TryCatchNode = ({ id, data, selected }: NodeProps) => {
@@ -26,12 +28,25 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
   const coverageEnabled = Boolean(nodeData.coverage_overlay);
   const coverageLabel = coverageBadge(coverageStatus, coverageEnabled);
   const patternStyle = coveragePatternStyle(coverageStatus, coverageEnabled);
+  const failureSeverity = typeof nodeData.failure_severity === 'string' ? nodeData.failure_severity : '';
+  const failureClass = failureSeverity === 'failed'
+    ? 'border-rose-400/90 shadow-rose-500/40'
+    : failureSeverity === 'directly_affected'
+      ? 'border-orange-400/80 shadow-orange-500/35'
+      : failureSeverity === 'transitively_affected'
+        ? 'border-amber-300/80 shadow-amber-500/25'
+        : nodeData.failure_unreachable
+          ? 'border-rose-300/70'
+          : '';
 
   return (
     <div
       onClick={() => {
-        const irNodeId = typeof nodeData.ir_node_id === 'string' && nodeData.ir_node_id ? nodeData.ir_node_id : id;
-        selectNode(irNodeId, 'flowchart');
+        void id;
+        const irNodeId = typeof nodeData.ir_node_id === 'string' ? nodeData.ir_node_id.trim() : '';
+        if (irNodeId) {
+          selectNode(irNodeId, 'flowchart');
+        }
       }}
       title={`Try/Catch: ${nodeData.label} — Lines ${nodeData.source_start ?? '?'}–${nodeData.source_end ?? '?'}`}
       aria-label={`Try-catch node: ${nodeData.label}`}
@@ -40,6 +55,7 @@ const TryCatchNode = ({ id, data, selected }: NodeProps) => {
         ${nodeData.is_active ? 'ring-2 ring-orange-400 ring-offset-1 ring-offset-background' : ''}
         ${selected || nodeData.cross_selected ? 'border-orange-400/80 shadow-orange-500/30 shadow-xl' : 'border-orange-500/40'}
         ${coverageBorderClass(coverageStatus, coverageEnabled)}
+        ${failureClass}
         ${nodeData.cross_pulse ? 'codeflowx-selection-pulse' : ''}
         bg-[#1a0f00]/90
       `}

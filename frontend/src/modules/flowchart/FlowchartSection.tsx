@@ -1,14 +1,16 @@
 import { ReactFlow, Background, Controls, MiniMap } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CustomNode } from './nodes/CustomNode';
-import { useFlowchartStore } from '../../store/useFlowchartStore';
+import { useStore } from '../../store/useStore';
 
 const nodeTypes = {
   custom: CustomNode,
 };
 
 export const FlowchartSection = () => {
-  const { nodes, edges } = useFlowchartStore();
+  const flowchartData = useStore((state) => state.flowchartData);
+  const nodes = flowchartData?.nodes ?? [];
+  const edges = flowchartData?.edges ?? [];
   
   return (
     <div className="w-full h-full bg-slate-900/50 rounded-xl border border-white/10 overflow-hidden relative">

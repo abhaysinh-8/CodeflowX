@@ -141,6 +141,7 @@ class ExecutionInterpreter:
         source_code: str = "",
         file: str = "main",
         step_limit: int | None = None,
+        call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
     ):
         self.ir_root = ir_root
         self.source_code = source_code
@@ -155,6 +156,7 @@ class ExecutionInterpreter:
         self._last_snapshot: Dict[str, Dict[str, Any]] = {}
         self._max_call_depth = 24
         self._max_loop_iterations = 16
+        self.call_resolution_map: Dict[str, Dict[str, Any]] = call_resolution_map or {}
 
         self._frames: List[_RuntimeFrame] = [
             _RuntimeFrame(
@@ -171,6 +173,7 @@ class ExecutionInterpreter:
         self._last_return_value: Any = None
 
         self._function_index: Dict[str, IRNode] = {}
+        self._function_index_by_id: Dict[str, IRNode] = {}
         self._index_functions(ir_root)
 
     def generate_steps(self) -> List[ExecutionStep]:
@@ -342,9 +345,15 @@ class ExecutionInterpreter:
         return ""
 
     def _execute_call(self, call_node: IRNode) -> Any:
-        if not call_node.name:
-            return None
-        callee = self._function_index.get(call_node.name)
+        call_record = self.call_resolution_map.get(call_node.id, {})
+        target_ir_id = str(call_record.get("target_ir_node_id", "")).strip()
+
+        callee: Optional[IRNode] = None
+        if target_ir_id:
+            callee = self._function_index_by_id.get(target_ir_id)
+
+        if callee is None and call_node.name:
+            callee = self._function_index.get(call_node.name)
         if not callee:
             return None
         return self._invoke_function(callee, call_node)
@@ -545,8 +554,14 @@ class ExecutionInterpreter:
         return self.step_limit is not None and len(self.steps) >= self.step_limit
 
     def _evaluate_expression_node(self, value_node: IRNode | None, fallback_expr: str = "") -> Any:
-        if value_node is not None and value_node.type == IRNodeType.CALL and value_node.name in self._function_index:
-            return self._invoke_function(self._function_index[value_node.name], value_node)
+        if value_node is not None and value_node.type == IRNodeType.CALL:
+            resolved = self._execute_call(value_node)
+            has_resolution = (
+                value_node.id in self.call_resolution_map
+                or (bool(value_node.name) and value_node.name in self._function_index)
+            )
+            if has_resolution:
+                return resolved
 
         expr = self._extract_text(value_node) if value_node is not None else fallback_expr
         if not expr:
@@ -691,6 +706,7 @@ class ExecutionInterpreter:
     def _index_functions(self, node: IRNode) -> None:
         if node.type == IRNodeType.FUNCTION_DEF and node.name:
             self._function_index[node.name] = node
+            self._function_index_by_id[node.id] = node
         for child in node.children:
             self._index_functions(child)
 
@@ -1005,6 +1021,7 @@ def build_execution_steps(
     code: str = "",
     file: str = "main",
     step_limit: int | None = None,
+    call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Convert IR payload to deterministic execution steps."""
     ir_root = ir_from_dict(ir_data)
@@ -1013,6 +1030,7 @@ def build_execution_steps(
         source_code=code,
         file=file,
         step_limit=step_limit,
+        call_resolution_map=call_resolution_map or {},
     )
     return [step.model_dump() for step in interpreter.generate_steps()]
 
@@ -1024,12 +1042,14 @@ if CELERY_APP is not None:
         code: str = "",
         file: str = "main",
         step_limit: int | None = None,
+        call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         return build_execution_steps(
             ir_data=ir_data,
             code=code,
             file=file,
             step_limit=step_limit,
+            call_resolution_map=call_resolution_map or {},
         )
 
 
@@ -1038,6 +1058,7 @@ def run_execution_job(
     code: str = "",
     file: str = "main",
     step_limit: int | None = None,
+    call_resolution_map: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], str]:
     """
     Build execution steps with optional Celery offload.
@@ -1059,7 +1080,7 @@ def run_execution_job(
         try:
             async_result = CELERY_APP.send_task(
                 CELERY_EXECUTION_TASK_NAME,
-                args=[ir_data, code, file, step_limit],
+                args=[ir_data, code, file, step_limit, call_resolution_map or {}],
             )
             steps = async_result.get(timeout=timeout_s)
             if isinstance(steps, list):
@@ -1073,6 +1094,7 @@ def run_execution_job(
         code=code,
         file=file,
         step_limit=step_limit,
+        call_resolution_map=call_resolution_map or {},
     ), "local"
 
 

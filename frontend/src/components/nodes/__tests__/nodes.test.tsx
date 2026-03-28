@@ -72,11 +72,11 @@ describe('FunctionNode', () => {
       <FunctionNode
         {...baseProps}
         id="fn-42"
-        data={{ label: 'bar', source_start: 1, source_end: 2 }}
+        data={{ label: 'bar', ir_node_id: 'ir-fn-42', source_start: 1, source_end: 2 }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /function node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('fn-42', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-fn-42', 'flowchart');
   });
 
   it('applies selected border class when selected=true', () => {
@@ -111,11 +111,11 @@ describe('DecisionNode', () => {
       <DecisionNode
         {...baseProps}
         id="d-10"
-        data={{ label: 'y < 5?' }}
+        data={{ label: 'y < 5?', ir_node_id: 'ir-d-10' }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /decision node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('d-10', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-d-10', 'flowchart');
   });
 });
 
@@ -138,11 +138,11 @@ describe('LoopNode', () => {
       <LoopNode
         {...baseProps}
         id="loop-5"
-        data={{ label: 'while True', source_start: 5, source_end: 9 }}
+        data={{ label: 'while True', ir_node_id: 'ir-loop-5', source_start: 5, source_end: 9 }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /loop node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('loop-5', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-loop-5', 'flowchart');
   });
 });
 
@@ -176,11 +176,11 @@ describe('TerminalNode', () => {
       <TerminalNode
         {...baseProps}
         id="term-1"
-        data={{ label: 'Start', terminal_type: 'start' }}
+        data={{ label: 'Start', ir_node_id: 'ir-term-1', terminal_type: 'start' }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /terminal node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('term-1', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-term-1', 'flowchart');
   });
 });
 
@@ -203,11 +203,11 @@ describe('CallNode', () => {
       <CallNode
         {...baseProps}
         id="call-7"
-        data={{ label: 'print()', callee: 'print', source_start: 10 }}
+        data={{ label: 'print()', ir_node_id: 'ir-call-7', callee: 'print', source_start: 10 }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /call node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('call-7', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-call-7', 'flowchart');
   });
 });
 
@@ -241,10 +241,10 @@ describe('TryCatchNode', () => {
       <TryCatchNode
         {...baseProps}
         id="tc-3"
-        data={{ label: 'try', exception_type: 'IOError' }}
+        data={{ label: 'try', ir_node_id: 'ir-tc-3', exception_type: 'IOError' }}
       />
     );
     fireEvent.click(screen.getByRole('generic', { name: /try.catch node/i }));
-    expect(mockSelectNode).toHaveBeenCalledWith('tc-3', 'flowchart');
+    expect(mockSelectNode).toHaveBeenCalledWith('ir-tc-3', 'flowchart');
   });
 });

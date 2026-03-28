@@ -6,6 +6,7 @@ export type Language = 'python' | 'javascript' | 'typescript' | 'java';
 export type CoverageStatus = 'fully_covered' | 'partially_covered' | 'uncovered' | 'dead';
 export type CoverageFilter = 'all' | 'covered' | 'partial' | 'uncovered' | 'dead';
 export type SelectionSource = 'flowchart' | 'dependency' | 'execution' | 'coverage' | 'editor' | 'history' | 'system';
+export type FailureSeverity = 'failed' | 'directly_affected' | 'transitively_affected';
 
 interface FlowchartData {
   nodes: Node[];
@@ -93,6 +94,20 @@ interface SelectNodeOptions {
   recordHistory?: boolean;
 }
 
+interface SelectionMeta {
+  source: SelectionSource;
+  timestamp: number;
+}
+
+interface FailureAffectedNode {
+  dependency_node_id: string;
+  ir_node_id?: string | null;
+  flowchart_node_id?: string | null;
+  name?: string | null;
+  node_type?: string | null;
+  severity: FailureSeverity;
+}
+
 interface AppState {
   // Editor
   code: string;
@@ -108,6 +123,7 @@ interface AppState {
   // Cross-view sync
   syncViewsEnabled: boolean;
   selectedNodeId: string | null;
+  selectedNodeMeta: SelectionMeta | null;
   selectionPulseNodeId: string | null;
   selectionPulseToken: number;
   selectionPulseAt: number;
@@ -186,6 +202,25 @@ interface AppState {
   setCoverageFilter: (filter: CoverageFilter) => void;
   clearCoverage: () => void;
 
+  // Failure simulation
+  failedDependencyNodeIds: string[];
+  failureAffectedNodes: FailureAffectedNode[];
+  failureAffectedByIrNode: Record<string, FailureSeverity>;
+  failureAffectedByDependencyNode: Record<string, FailureSeverity>;
+  failureUnreachableFlowchartNodeIds: string[];
+  failureBlastRadius: number;
+  isLoadingFailureSimulation: boolean;
+  failureSimulationError: string | null;
+  setFailureSimulationResult: (payload: {
+    failedDependencyNodeIds: string[];
+    affectedNodes: FailureAffectedNode[];
+    unreachableFlowchartNodeIds: string[];
+    blastRadius: number;
+  }) => void;
+  setLoadingFailureSimulation: (loading: boolean) => void;
+  setFailureSimulationError: (error: string | null) => void;
+  resetFailureSimulation: () => void;
+
   // Dependency graph
   dependencyData: DependencyData | null;
   dependencySearchResults: DependencySearchResult[];
@@ -215,29 +250,48 @@ export const useStore = create<AppState>((set) => ({
   // Cross-view sync
   syncViewsEnabled: true,
   selectedNodeId: null,
+  selectedNodeMeta: null,
   selectionPulseNodeId: null,
   selectionPulseToken: 0,
   selectionPulseAt: 0,
   selectionHistory: [],
   selectionHistoryIndex: -1,
   setSyncViewsEnabled: (syncViewsEnabled) => set({ syncViewsEnabled }),
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId) => set({
+    selectedNodeId,
+    selectedNodeMeta: selectedNodeId
+      ? { source: 'system', timestamp: Date.now() }
+      : null,
+  }),
   selectNode: (id, source = 'system', options = {}) => set((state) => {
-    void source;
-    if (!id) return {};
+    const normalizedId = (id ?? '').trim();
+    if (!normalizedId) return {};
+    if (
+      !options.force
+      && state.irNodeLookup
+      && Object.keys(state.irNodeLookup).length > 0
+      && !state.irNodeLookup[normalizedId]
+    ) {
+      return {};
+    }
     if (!state.syncViewsEnabled && !options.force) return {};
 
+    const selectionMeta: SelectionMeta = {
+      source,
+      timestamp: Date.now(),
+    };
     const updates: Partial<AppState> = {
-      selectedNodeId: id,
-      selectionPulseNodeId: id,
+      selectedNodeId: normalizedId,
+      selectedNodeMeta: selectionMeta,
+      selectionPulseNodeId: normalizedId,
       selectionPulseToken: state.selectionPulseToken + 1,
-      selectionPulseAt: Date.now(),
+      selectionPulseAt: selectionMeta.timestamp,
     };
 
     if (options.recordHistory !== false) {
       const trimmed = state.selectionHistory.slice(0, state.selectionHistoryIndex + 1);
-      if (trimmed[trimmed.length - 1] !== id) {
-        trimmed.push(id);
+      if (trimmed[trimmed.length - 1] !== normalizedId) {
+        trimmed.push(normalizedId);
       }
       updates.selectionHistory = trimmed;
       updates.selectionHistoryIndex = trimmed.length - 1;
@@ -252,6 +306,9 @@ export const useStore = create<AppState>((set) => ({
     return {
       selectionHistoryIndex: nextIndex,
       selectedNodeId,
+      selectedNodeMeta: selectedNodeId
+        ? { source: 'history', timestamp: Date.now() }
+        : null,
       selectionPulseNodeId: selectedNodeId,
       selectionPulseToken: state.selectionPulseToken + 1,
       selectionPulseAt: Date.now(),
@@ -264,6 +321,9 @@ export const useStore = create<AppState>((set) => ({
     return {
       selectionHistoryIndex: nextIndex,
       selectedNodeId,
+      selectedNodeMeta: selectedNodeId
+        ? { source: 'history', timestamp: Date.now() }
+        : null,
       selectionPulseNodeId: selectedNodeId,
       selectionPulseToken: state.selectionPulseToken + 1,
       selectionPulseAt: Date.now(),
@@ -273,6 +333,7 @@ export const useStore = create<AppState>((set) => ({
     selectionHistory: [],
     selectionHistoryIndex: -1,
     selectedNodeId: null,
+    selectedNodeMeta: null,
     selectionPulseNodeId: null,
   }),
 
@@ -404,6 +465,54 @@ export const useStore = create<AppState>((set) => ({
     isLoadingCoverage: false,
     coverageOverlayEnabled: false,
     coverageFilter: 'all',
+  }),
+
+  // Failure simulation
+  failedDependencyNodeIds: [],
+  failureAffectedNodes: [],
+  failureAffectedByIrNode: {},
+  failureAffectedByDependencyNode: {},
+  failureUnreachableFlowchartNodeIds: [],
+  failureBlastRadius: 0,
+  isLoadingFailureSimulation: false,
+  failureSimulationError: null,
+  setFailureSimulationResult: ({
+    failedDependencyNodeIds,
+    affectedNodes,
+    unreachableFlowchartNodeIds,
+    blastRadius,
+  }) => {
+    const byIr: Record<string, FailureSeverity> = {};
+    const byDep: Record<string, FailureSeverity> = {};
+    for (const node of affectedNodes) {
+      if (node.ir_node_id) byIr[node.ir_node_id] = node.severity;
+      if (node.dependency_node_id) byDep[node.dependency_node_id] = node.severity;
+    }
+    set({
+      failedDependencyNodeIds: [...failedDependencyNodeIds],
+      failureAffectedNodes: [...affectedNodes],
+      failureAffectedByIrNode: byIr,
+      failureAffectedByDependencyNode: byDep,
+      failureUnreachableFlowchartNodeIds: [...unreachableFlowchartNodeIds],
+      failureBlastRadius: Math.max(0, blastRadius),
+      isLoadingFailureSimulation: false,
+      failureSimulationError: null,
+    });
+  },
+  setLoadingFailureSimulation: (isLoadingFailureSimulation) => set({ isLoadingFailureSimulation }),
+  setFailureSimulationError: (failureSimulationError) => set({
+    failureSimulationError,
+    isLoadingFailureSimulation: false,
+  }),
+  resetFailureSimulation: () => set({
+    failedDependencyNodeIds: [],
+    failureAffectedNodes: [],
+    failureAffectedByIrNode: {},
+    failureAffectedByDependencyNode: {},
+    failureUnreachableFlowchartNodeIds: [],
+    failureBlastRadius: 0,
+    isLoadingFailureSimulation: false,
+    failureSimulationError: null,
   }),
 
   // Dependency graph

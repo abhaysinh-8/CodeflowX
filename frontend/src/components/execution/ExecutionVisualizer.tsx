@@ -31,6 +31,7 @@ import {
 import { useStore } from '../../store/useStore';
 import { nodeTypes } from '../nodes';
 import type { ExecutionVariableState } from '../../types/execution';
+import { useShallow } from 'zustand/react/shallow';
 
 interface ExecutionVisualizerProps {
   runExecution: (conditionalBreakpoints?: Record<string, string>) => Promise<void>;
@@ -140,7 +141,27 @@ export default function ExecutionVisualizer({
     pinnedVariables,
     togglePinnedVariable,
     setDependencyExecutionActiveNodeId,
-  } = useStore();
+  } = useStore(useShallow((state) => ({
+    flowchartData: state.flowchartData,
+    selectNode: state.selectNode,
+    selectedNodeId: state.selectedNodeId,
+    irNodeLookup: state.irNodeLookup,
+    executionSteps: state.executionSteps,
+    currentExecutionStep: state.currentExecutionStep,
+    nextExecutionStep: state.nextExecutionStep,
+    prevExecutionStep: state.prevExecutionStep,
+    setCurrentExecutionStep: state.setCurrentExecutionStep,
+    executionBreakpoints: state.executionBreakpoints,
+    toggleExecutionBreakpoint: state.toggleExecutionBreakpoint,
+    breakpointHits: state.breakpointHits,
+    isLoadingExecution: state.isLoadingExecution,
+    executionError: state.executionError,
+    isExecutionPlaying: state.isExecutionPlaying,
+    executionSpeed: state.executionSpeed,
+    pinnedVariables: state.pinnedVariables,
+    togglePinnedVariable: state.togglePinnedVariable,
+    setDependencyExecutionActiveNodeId: state.setDependencyExecutionActiveNodeId,
+  })));
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -315,7 +336,9 @@ export default function ExecutionVisualizer({
     (_event, node) => {
       focusedFlowNodeIdRef.current = node.id;
       const irNodeId = (node.data as Record<string, unknown> | undefined)?.ir_node_id;
-      selectNode(typeof irNodeId === 'string' && irNodeId ? irNodeId : node.id, 'execution');
+      if (typeof irNodeId === 'string' && irNodeId.trim()) {
+        selectNode(irNodeId.trim(), 'execution');
+      }
       if (!executionBreakpoints.includes(node.id)) {
         toggleExecutionBreakpoint(node.id);
       }

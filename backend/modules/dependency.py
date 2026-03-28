@@ -179,6 +179,9 @@ class DependencyModule:
         self.function_context: Dict[str, Dict[str, Any]] = {}
         self.imports: Set[str] = set()
         self.import_roots: Set[str] = set()
+        self.import_alias_to_module: Dict[str, str] = {}
+        self.imported_symbol_to_module: Dict[str, str] = {}
+        self.call_resolution_map: Dict[str, Dict[str, Any]] = {}
 
         self._module_node_id = self._ensure_node(
             node_type="module",
@@ -194,7 +197,11 @@ class DependencyModule:
 
     def generate(self, ir_root: IRNode) -> Dict[str, Any]:
         self.attach_ir_root(ir_root)
-        self.imports = self._collect_imports_from_source()
+        (
+            self.imports,
+            self.import_alias_to_module,
+            self.imported_symbol_to_module,
+        ) = self._collect_import_context_from_source()
         self.import_roots = {imp.split(".")[0] for imp in self.imports}
 
         # Pass 1: collect symbols (functions/classes) and base grouping.
@@ -211,6 +218,7 @@ class DependencyModule:
             "nodes": [asdict(node) for node in self.nodes.values()],
             "edges": [asdict(edge) for edge in self.edges.values()],
             "clusters": [asdict(cluster) for cluster in self.clusters.values()],
+            "call_resolution_map": self.call_resolution_map,
         }
 
     def _walk_ir(
@@ -312,7 +320,12 @@ class DependencyModule:
             call_name = (node.name or "").strip()
             if call_name:
                 caller_id = active_function_id or active_class_id or self._module_node_id
-                self._register_call_edge(caller_id, call_name)
+                self._register_call_edge(
+                    caller_id=caller_id,
+                    call_name=call_name,
+                    call_node_ir_id=node.id,
+                    caller_class_id=active_class_id,
+                )
 
         for child in node.children:
             self._walk_calls(
@@ -321,19 +334,51 @@ class DependencyModule:
                 current_class_id=active_class_id,
             )
 
-    def _register_call_edge(self, caller_id: str, call_name: str) -> None:
+    def _register_call_edge(
+        self,
+        caller_id: str,
+        call_name: str,
+        call_node_ir_id: Optional[str] = None,
+        caller_class_id: Optional[str] = None,
+    ) -> None:
         canonical = call_name.strip()
-        target_function_id = self._resolve_function_target(canonical)
-        if target_function_id:
+        if not canonical:
+            return
+
+        resolved = self._resolve_function_target(
+            call_name=canonical,
+            caller_class_id=caller_class_id,
+        )
+        if resolved:
+            target_function_id, resolution_type = resolved
             self._add_edge(caller_id, target_function_id, "calls", "Calls")
+            self._record_call_resolution(
+                call_node_ir_id=call_node_ir_id,
+                call_name=canonical,
+                target_node_id=target_function_id,
+                resolution_type=resolution_type,
+            )
             return
 
         root = canonical.split(".")[0]
         if root in self.class_ids_by_name:
-            self._add_edge(caller_id, self.class_ids_by_name[root], "calls", "Calls")
+            class_target_id = self.class_ids_by_name[root]
+            self._add_edge(caller_id, class_target_id, "calls", "Calls")
+            self._record_call_resolution(
+                call_node_ir_id=call_node_ir_id,
+                call_name=canonical,
+                target_node_id=class_target_id,
+                resolution_type="class_call",
+            )
             return
 
         if not self._is_external_call(canonical):
+            self._record_call_resolution(
+                call_node_ir_id=call_node_ir_id,
+                call_name=canonical,
+                target_node_id=None,
+                resolution_type="unresolved",
+            )
             return
 
         service_name, service_type = self._normalize_external_service(canonical)
@@ -347,6 +392,12 @@ class DependencyModule:
             metadata={"service_type": service_type},
         )
         self._add_edge(caller_id, external_node_id, "depends_on", "Depends On")
+        self._record_call_resolution(
+            call_node_ir_id=call_node_ir_id,
+            call_name=canonical,
+            target_node_id=external_node_id,
+            resolution_type="external",
+        )
 
     def _register_import_edges(self) -> None:
         for module_name in sorted(self.imports):
@@ -403,16 +454,48 @@ class DependencyModule:
             for target in target_ids:
                 self._add_edge(self._module_node_id, target, "triggers", "Triggers")
 
-    def _resolve_function_target(self, call_name: str) -> Optional[str]:
+    def _resolve_function_target(
+        self,
+        call_name: str,
+        caller_class_id: Optional[str] = None,
+    ) -> Optional[Tuple[str, str]]:
+        # 1) Exact local symbol first.
         direct = self.function_ids_by_name.get(call_name)
         if direct:
-            return direct[0]
+            scoped = self._pick_scoped_candidate(direct, caller_class_id)
+            if scoped:
+                return scoped, "local_symbol"
 
+        # 2) Scoped method resolution for dotted calls (self.foo(), this.foo(), Class.foo()).
         if "." in call_name:
+            owner = call_name.split(".")[0]
             suffix = call_name.split(".")[-1]
-            direct = self.function_ids_by_name.get(suffix)
-            if direct:
-                return direct[0]
+            by_suffix = self.function_ids_by_name.get(suffix, [])
+            if by_suffix:
+                if owner in {"self", "this"} and caller_class_id:
+                    scoped = self._pick_scoped_candidate(by_suffix, caller_class_id)
+                    if scoped:
+                        return scoped, "scoped_method"
+                if owner in self.class_ids_by_name:
+                    owner_name = owner
+                    scoped = [
+                        fid
+                        for fid in by_suffix
+                        if self.nodes.get(fid)
+                        and self.nodes[fid].metadata.get("class_name") == owner_name
+                    ]
+                    if scoped:
+                        return scoped[0], "scoped_method"
+                fallback = self._pick_scoped_candidate(by_suffix, caller_class_id)
+                if fallback:
+                    return fallback, "local_suffix"
+
+        # 3) Non-dotted fallback to same-class first, then module-level symbol.
+        direct_suffix = self.function_ids_by_name.get(call_name, [])
+        if direct_suffix:
+            scoped = self._pick_scoped_candidate(direct_suffix, caller_class_id)
+            if scoped:
+                return scoped, "local_symbol"
         return None
 
     def _is_external_call(self, call_name: str) -> bool:
@@ -426,12 +509,26 @@ class DependencyModule:
             return False
         if root in self.class_ids_by_name:
             return False
+        # Import-aware matching first (alias/symbol/module), then heuristic fallbacks.
+        if root in self.import_alias_to_module:
+            return True
+        if call_name in self.imported_symbol_to_module:
+            return True
+        if root in self.imported_symbol_to_module:
+            return True
         if root in self.import_roots:
             return True
         return root in KNOWN_EXTERNAL_PREFIXES
 
     def _normalize_external_service(self, call_name: str) -> Tuple[str, str]:
         root = call_name.split(".")[0]
+        if root in self.import_alias_to_module:
+            root = self.import_alias_to_module[root].split(".")[0]
+        elif call_name in self.imported_symbol_to_module:
+            root = self.imported_symbol_to_module[call_name].split(".")[0]
+        elif root in self.imported_symbol_to_module:
+            root = self.imported_symbol_to_module[root].split(".")[0]
+
         service_type = "LIB"
         if root in {"requests", "axios", "fetch", "http", "https", "urllib"}:
             service_type = "HTTP"
@@ -441,15 +538,51 @@ class DependencyModule:
             service_type = "OS/FS"
         return root, service_type
 
-    def _collect_imports_from_source(self) -> Set[str]:
+    def _collect_import_context_from_source(
+        self,
+    ) -> Tuple[Set[str], Dict[str, str], Dict[str, str]]:
         imports: Set[str] = set()
+        alias_to_module: Dict[str, str] = {}
+        symbol_to_module: Dict[str, str] = {}
         text = self.source_code
 
         if self.language == "python":
-            for match in re.finditer(r"^\s*import\s+([A-Za-z0-9_\.]+)", text, flags=re.MULTILINE):
-                imports.add(match.group(1))
-            for match in re.finditer(r"^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+", text, flags=re.MULTILINE):
-                imports.add(match.group(1))
+            for match in re.finditer(
+                r"^\s*import\s+([A-Za-z0-9_\.]+)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?",
+                text,
+                flags=re.MULTILINE,
+            ):
+                module_name = match.group(1)
+                alias = match.group(2)
+                imports.add(module_name)
+                if alias:
+                    alias_to_module[alias] = module_name
+                else:
+                    alias_to_module[module_name.split(".")[0]] = module_name
+
+            for match in re.finditer(
+                r"^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+(.+)$",
+                text,
+                flags=re.MULTILINE,
+            ):
+                module_name = match.group(1)
+                import_clause = match.group(2).strip()
+                imports.add(module_name)
+                if import_clause == "*":
+                    continue
+                for raw_part in import_clause.split(","):
+                    part = raw_part.strip()
+                    if not part:
+                        continue
+                    alias_match = re.match(
+                        r"([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?",
+                        part,
+                    )
+                    if not alias_match:
+                        continue
+                    symbol = alias_match.group(1)
+                    alias = alias_match.group(2) or symbol
+                    symbol_to_module[alias] = module_name
 
         elif self.language in {"javascript", "typescript"}:
             for match in re.finditer(r"import\s+[^;]*?\s+from\s+[\"']([^\"']+)[\"']", text):
@@ -458,12 +591,98 @@ class DependencyModule:
                 imports.add(match.group(1))
             for match in re.finditer(r"require\(\s*[\"']([^\"']+)[\"']\s*\)", text):
                 imports.add(match.group(1))
+            for match in re.finditer(
+                r"import\s+\*\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*)\s+from\s+[\"']([^\"']+)[\"']",
+                text,
+            ):
+                alias_to_module[match.group(1)] = match.group(2)
+            for match in re.finditer(
+                r"import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:,\s*\{[^}]*\})?\s+from\s+[\"']([^\"']+)[\"']",
+                text,
+            ):
+                alias_to_module.setdefault(match.group(1), match.group(2))
+            for match in re.finditer(
+                r"import\s+(?:[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*)?\{([^}]+)\}\s+from\s+[\"']([^\"']+)[\"']",
+                text,
+            ):
+                members = match.group(1)
+                module_name = match.group(2)
+                for raw_part in members.split(","):
+                    part = raw_part.strip()
+                    if not part:
+                        continue
+                    alias_match = re.match(
+                        r"([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?",
+                        part,
+                    )
+                    if not alias_match:
+                        continue
+                    symbol = alias_match.group(1)
+                    alias = alias_match.group(2) or symbol
+                    symbol_to_module[alias] = module_name
+            for match in re.finditer(
+                r"(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*require\(\s*[\"']([^\"']+)[\"']\s*\)",
+                text,
+            ):
+                alias_to_module[match.group(1)] = match.group(2)
 
         elif self.language == "java":
             for match in re.finditer(r"^\s*import\s+([A-Za-z0-9_\.]+)\s*;", text, flags=re.MULTILINE):
-                imports.add(match.group(1))
+                fq_name = match.group(1)
+                imports.add(fq_name)
+                simple_name = fq_name.split(".")[-1]
+                if simple_name and simple_name != "*":
+                    symbol_to_module[simple_name] = fq_name
 
-        return imports
+        return imports, alias_to_module, symbol_to_module
+
+    def _pick_scoped_candidate(
+        self,
+        candidates: Sequence[str],
+        caller_class_id: Optional[str],
+    ) -> Optional[str]:
+        if not candidates:
+            return None
+
+        if caller_class_id:
+            class_name = self._node_name(caller_class_id) or ""
+            scoped = [
+                fid
+                for fid in candidates
+                if self.nodes.get(fid)
+                and self.nodes[fid].metadata.get("class_name") == class_name
+            ]
+            if scoped:
+                return scoped[0]
+
+        module_level = [
+            fid
+            for fid in candidates
+            if self.nodes.get(fid)
+            and not str(self.nodes[fid].metadata.get("class_name", "")).strip()
+        ]
+        if module_level:
+            return module_level[0]
+        return candidates[0]
+
+    def _record_call_resolution(
+        self,
+        call_node_ir_id: Optional[str],
+        call_name: str,
+        target_node_id: Optional[str],
+        resolution_type: str,
+    ) -> None:
+        if not call_node_ir_id:
+            return
+        target_ir_id: Optional[str] = None
+        if target_node_id and target_node_id in self.nodes:
+            target_ir_id = self.nodes[target_node_id].ir_node_id
+        self.call_resolution_map[call_node_ir_id] = {
+            "call_name": call_name,
+            "target_dependency_node_id": target_node_id,
+            "target_ir_node_id": target_ir_id,
+            "resolution_type": resolution_type,
+        }
 
     def _extract_python_decorators(self) -> Dict[str, List[str]]:
         result: Dict[str, List[str]] = {}

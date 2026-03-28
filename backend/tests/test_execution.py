@@ -1,9 +1,11 @@
 from fastapi.testclient import TestClient
 
 from backend.ir.transformer import ASTTransformer
-from backend.modules.execution import ExecutionInterpreter
+from backend.modules.execution import ExecutionInterpreter, build_execution_steps
 from backend.parsers.grammar_loader import GrammarLoader
 from backend.main import app
+from backend.ir.utils import get_descendants
+from backend.ir.ir_node import IRNodeType
 
 
 client = TestClient(app)
@@ -170,3 +172,35 @@ x = x + 1
                 break
 
     assert paused_received is False, "Breakpoint should not pause when condition evaluates false"
+
+
+def test_execution_uses_call_resolution_map_for_call_target():
+    code = """
+def alpha():
+    return 1
+
+def beta():
+    return 2
+
+x = alpha()
+"""
+    tree = GrammarLoader.parse(code, "python")
+    ir = ASTTransformer("python", code).transform(tree.root_node)
+    descendants = get_descendants(ir)
+
+    call_node = next(node for node in descendants if node.type == IRNodeType.CALL)
+    beta_node = next(node for node in descendants if node.type == IRNodeType.FUNCTION_DEF and node.name == "beta")
+
+    payload = _ir_to_dict(ir)
+    steps = build_execution_steps(
+        payload,
+        code=code,
+        call_resolution_map={
+            call_node.id: {
+                "target_ir_node_id": beta_node.id,
+                "resolution_type": "scoped_method",
+            }
+        },
+    )
+
+    assert any(step["variables"].get("x", {}).get("value") == 2 for step in steps)

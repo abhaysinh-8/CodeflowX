@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
-from backend.main import app
+import pytest
+
+from backend.main import app, _validate_cross_module_consistency
 
 
 client = TestClient(app)
@@ -40,6 +42,7 @@ def main():
     dep_nodes = data["dependency"]["nodes"]
     assert dep_nodes
     assert all(node.get("flowchart_job_id") == data["job_id"] for node in dep_nodes)
+    assert isinstance(data["dependency"].get("call_resolution_map"), dict)
 
     steps = data["execution"]["steps"]
     assert steps
@@ -118,3 +121,25 @@ def pong():
     assert lazy_payload["status"] == "success"
     assert lazy_payload["focus_ir_node_id"] == candidate_ir_id
     assert isinstance(lazy_payload["flowchart"]["nodes"], list)
+
+
+def test_cross_module_validator_raises_on_inconsistent_references():
+    with pytest.raises(ValueError):
+        _validate_cross_module_consistency(
+            ir_payload={
+                "id": "ir-root",
+                "type": "block",
+                "children": [],
+            },
+            flow_nodes=[
+                {
+                    "id": "node-unknown",
+                    "data": {"ir_node_id": "missing-ir"},
+                }
+            ],
+            dependency_nodes=[],
+            execution_steps=[],
+            coverage_node_coverage_map={},
+            ir_node_lookup={},
+            call_resolution_map={},
+        )

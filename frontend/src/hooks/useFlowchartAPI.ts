@@ -140,6 +140,7 @@ export function useFlowchartAPI() {
     setAnalysisContext,
     clearSelectionHistory,
     clearDependencyExecutionTrail,
+    resetFailureSimulation,
   } = useStore();
   const [isLoading, setIsLoading] = useState(false);
   const tokenRef = useRef<string | null>(null);
@@ -170,6 +171,7 @@ export function useFlowchartAPI() {
     setExecutionErrorMessage(null);
     setCoverageError(null);
     clearDependencyExecutionTrail();
+    resetFailureSimulation();
 
     const progressTimer = window.setInterval(() => {
       const current = useStore.getState().flowchartProgress;
@@ -362,6 +364,7 @@ export function useFlowchartAPI() {
     setLoadingExecution,
     setLoadingFlowchart,
     setSyntaxErrorLine,
+    resetFailureSimulation,
   ]);
 
   return { analyze, isLoading };
