@@ -5,6 +5,7 @@ import type { editor as MonacoEditorNS } from 'monaco-editor';
 import { Upload, FileCode } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import type { Language } from '../../store/useStore';
+import { useExplanationStore } from '../../store/explanationStore';
 
 const LANGUAGE_DISPLAY: Record<Language, string> = {
   python: 'Python',
@@ -95,13 +96,17 @@ interface CodeEditorPanelProps {
   onRun?: () => void;
 }
 
+const EMPTY_ARRAY: number[] = [];
+
 export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
   const { code, language, setCode, setLanguage, selectedNodeId, irNodes, syntaxErrorLine, coverageData } = useStore();
+  const explanationLines = useExplanationStore((state) => state.currentExplanation?.relevant_lines ?? EMPTY_ARRAY);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MonacoEditorNS.IStandaloneCodeEditor | null>(null);
   const languageRef = useRef<Language>(language);
   const irDecorIdsRef = useRef<string[]>([]);
   const errDecorIdsRef = useRef<string[]>([]);
+  const explainDecorIdsRef = useRef<string[]>([]);
   const monaco = useMonaco();
 
   useEffect(() => {
@@ -150,6 +155,25 @@ export default function CodeEditorPanel({ onRun }: CodeEditorPanelProps) {
       options: { isWholeLine: true, className: 'monaco-error-highlight' },
     }]);
   }, [syntaxErrorLine, monaco]);
+
+  // AI explanation -> highlight relevant lines and scroll to region
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !monaco) return;
+
+    if (!Array.isArray(explanationLines) || explanationLines.length < 2) {
+      explainDecorIdsRef.current = editor.deltaDecorations(explainDecorIdsRef.current, []);
+      return;
+    }
+
+    const start = Math.max(1, Number(explanationLines[0] ?? 1));
+    const end = Math.max(start, Number(explanationLines[1] ?? start));
+    editor.revealLineInCenter(start);
+    explainDecorIdsRef.current = editor.deltaDecorations(explainDecorIdsRef.current, [{
+      range: new monaco.Range(start, 1, end, Number.MAX_SAFE_INTEGER),
+      options: { isWholeLine: true, className: 'monaco-explain-highlight' },
+    }]);
+  }, [explanationLines, monaco]);
 
   const handleEditorMount: OnMount = (editor, monacoInstance) => {
     editorRef.current = editor;

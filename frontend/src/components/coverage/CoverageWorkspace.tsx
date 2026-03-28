@@ -3,6 +3,18 @@ import { UploadCloud, Download, Layers, FileCheck2 } from 'lucide-react';
 import FlowchartCanvas from '../canvas/FlowchartCanvas';
 import { useCoverageAPI } from '../../hooks/useCoverageAPI';
 import { useStore } from '../../store/useStore';
+import type { ExplanationType } from '../../store/explanationStore';
+
+interface CoverageWorkspaceProps {
+  onExplainRequest?: (type: ExplanationType, targetId: string, payload?: Record<string, unknown>) => void;
+}
+
+interface CoverageMenuState {
+  x: number;
+  y: number;
+  targetId: string;
+  payload: Record<string, unknown>;
+}
 
 function downloadSample(filename: string, content: string): void {
   const blob = new Blob([content], { type: 'text/plain' });
@@ -56,7 +68,7 @@ const SAMPLE_NATIVE = JSON.stringify({
   line_hits: { '2': 1, '3': 0 },
 }, null, 2);
 
-export default function CoverageWorkspace() {
+export default function CoverageWorkspace({ onExplainRequest }: CoverageWorkspaceProps) {
   const { importCoverage, exportCoverageReport } = useCoverageAPI();
   const {
     coverageData,
@@ -68,6 +80,7 @@ export default function CoverageWorkspace() {
     setCoverageFilter,
   } = useStore();
   const [isDragging, setDragging] = useState(false);
+  const [menu, setMenu] = useState<CoverageMenuState | null>(null);
 
   const onSelectFile = useCallback((file: File | null) => {
     if (!file) return;
@@ -87,6 +100,14 @@ export default function CoverageWorkspace() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [coverageOverlayEnabled, setCoverageOverlayEnabled]);
 
+  useEffect(() => {
+    const clearMenu = () => setMenu(null);
+    window.addEventListener('click', clearMenu);
+    return () => {
+      window.removeEventListener('click', clearMenu);
+    };
+  }, []);
+
   const summary = coverageData?.summary;
   const segments = useMemo(() => {
     if (!summary) return [];
@@ -101,7 +122,7 @@ export default function CoverageWorkspace() {
   return (
     <div className="h-full w-full grid grid-cols-[1fr_340px] gap-3">
       <div className="h-full min-h-0">
-        <FlowchartCanvas />
+        <FlowchartCanvas onExplainRequest={onExplainRequest} />
       </div>
       <div className="h-full min-h-0 rounded-2xl border border-white/10 bg-slate-950/70 p-3 flex flex-col gap-3">
         <div
@@ -179,6 +200,19 @@ export default function CoverageWorkspace() {
                   <button
                     key={segment.key}
                     onClick={() => setCoverageFilter(segment.key as typeof coverageFilter)}
+                    onContextMenu={(event) => {
+                      if (!onExplainRequest) return;
+                      event.preventDefault();
+                      setMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        targetId: String(segment.key),
+                        payload: {
+                          coverage_region: segment.key,
+                          coverage_label: segment.label,
+                        },
+                      });
+                    }}
                     className={`w-full flex items-center justify-between text-xs px-2 py-1 rounded-md border ${
                       coverageFilter === segment.key
                         ? 'border-cyan-400/50 bg-cyan-500/15 text-cyan-100'
@@ -220,6 +254,23 @@ export default function CoverageWorkspace() {
           </div>
         </div>
       </div>
+      {menu && onExplainRequest && (
+        <div
+          className="fixed z-[80] min-w-[132px] rounded-lg border border-white/15 bg-slate-900/95 p-1.5 shadow-2xl"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              onExplainRequest('coverage', menu.targetId, menu.payload);
+              setMenu(null);
+            }}
+            className="w-full text-left text-xs px-2 py-1.5 rounded bg-white/[0.04] hover:bg-cyan-500/20 text-slate-100"
+          >
+            Explain this
+          </button>
+        </div>
+      )}
     </div>
   );
 }

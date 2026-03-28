@@ -10,6 +10,7 @@ import {
   useEdgesState,
   addEdge,
   type ReactFlowInstance,
+  type EdgeMouseHandler,
 } from '@xyflow/react';
 import type { Node, Edge, Connection, NodeMouseHandler } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -19,6 +20,19 @@ import { useStore } from '../../store/useStore';
 import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
 import { useFlowchartAPI } from '../../hooks/useFlowchartAPI';
 import { useShallow } from 'zustand/react/shallow';
+import type { ExplanationType } from '../../store/explanationStore';
+
+interface FlowchartCanvasProps {
+  onExplainRequest?: (type: ExplanationType, targetId: string, payload?: Record<string, unknown>) => void;
+}
+
+interface ExplainMenuState {
+  x: number;
+  y: number;
+  type: ExplanationType;
+  targetId: string;
+  payload: Record<string, unknown>;
+}
 
 const DEMO_NODES: Node[] = [
   { id: 't1', type: 'terminal', data: { label: 'Start', terminal_type: 'start' }, position: { x: 200, y: 20 } },
@@ -56,7 +70,7 @@ function matchesCoverageFilter(node: Node, status: string, filter: string, overl
   return true;
 }
 
-export default function FlowchartCanvas() {
+export default function FlowchartCanvas({ onExplainRequest }: FlowchartCanvasProps) {
   const {
     flowchartData,
     isLoadingFlowchart,
@@ -91,6 +105,7 @@ export default function FlowchartCanvas() {
   const { analyze } = useFlowchartAPI();
   const [instance, setInstance] = useState<ReactFlowInstance<Node, Edge> | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
+  const [menu, setMenu] = useState<ExplainMenuState | null>(null);
 
   const coverageMapByNode = useMemo(
     () => coverageData?.node_coverage_map ?? {},
@@ -202,6 +217,52 @@ export default function FlowchartCanvas() {
     }
   }, [selectNode]);
 
+  const onNodeContextMenu: NodeMouseHandler = useCallback((event, node) => {
+    if (!onExplainRequest) return;
+    event.preventDefault();
+    const irNodeId = String((node.data as Record<string, unknown> | undefined)?.ir_node_id ?? '').trim();
+    const targetId = irNodeId || String(node.id).trim();
+    if (!targetId) return;
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      type: 'node',
+      targetId,
+      payload: {
+        flow_node_id: node.id,
+      },
+    });
+  }, [onExplainRequest]);
+
+  const onEdgeContextMenu: EdgeMouseHandler = useCallback((event, edge) => {
+    if (!onExplainRequest) return;
+    event.preventDefault();
+    const sourceNode = displayNodes.find((item) => item.id === edge.source);
+    const targetNode = displayNodes.find((item) => item.id === edge.target);
+    const sourceIrNodeId = String((sourceNode?.data as Record<string, unknown> | undefined)?.ir_node_id ?? '').trim();
+    const targetIrNodeId = String((targetNode?.data as Record<string, unknown> | undefined)?.ir_node_id ?? '').trim();
+    const edgeId = String(edge.id ?? '').trim();
+    if (!edgeId) return;
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      type: 'edge',
+      targetId: edgeId,
+      payload: {
+        source_ir_node_id: sourceIrNodeId,
+        target_ir_node_id: targetIrNodeId,
+      },
+    });
+  }, [displayNodes, onExplainRequest]);
+
+  useEffect(() => {
+    const closeMenu = () => setMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+    };
+  }, []);
+
   const nodesWithTooltip = nodes.map((n) => ({
     ...n,
     title: [
@@ -275,6 +336,8 @@ export default function FlowchartCanvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onNodeContextMenu={onNodeContextMenu}
+        onEdgeContextMenu={onEdgeContextMenu}
         onInit={setInstance}
         nodeTypes={nodeTypes}
         fitView
@@ -323,6 +386,23 @@ export default function FlowchartCanvas() {
           )}
         </Panel>
       </ReactFlow>
+      {menu && onExplainRequest && (
+        <div
+          className="fixed z-[80] min-w-[132px] rounded-lg border border-white/15 bg-slate-900/95 p-1.5 shadow-2xl"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              onExplainRequest(menu.type, menu.targetId, menu.payload);
+              setMenu(null);
+            }}
+            className="w-full text-left text-xs px-2 py-1.5 rounded bg-white/[0.04] hover:bg-cyan-500/20 text-slate-100"
+          >
+            Explain this
+          </button>
+        </div>
+      )}
     </div>
   );
 }

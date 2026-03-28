@@ -9,6 +9,7 @@ import {
   type Node,
   type Edge,
   type NodeMouseHandler,
+  type EdgeMouseHandler,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -112,9 +113,10 @@ const nodeTypes = {
 
 interface DependencyGraphProps {
   onOpenFlowchartNode?: (irNodeId: string) => void;
+  onExplainEdge?: (edgeId: string, payload?: Record<string, unknown>) => void;
 }
 
-export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraphProps) {
+export default function DependencyGraph({ onOpenFlowchartNode, onExplainEdge }: DependencyGraphProps) {
   const {
     dependencyData,
     dependencySearchResults,
@@ -170,11 +172,25 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
   const [panelHistory, setPanelHistory] = useState<string[]>([]);
   const [panelHistoryIndex, setPanelHistoryIndex] = useState(-1);
   const [panelPayloadByIr, setPanelPayloadByIr] = useState<Record<string, FlowchartPanelPayload>>({});
+  const [edgeMenu, setEdgeMenu] = useState<{
+    x: number;
+    y: number;
+    edgeId: string;
+    payload: Record<string, unknown>;
+  } | null>(null);
 
   useEffect(() => {
     fetchToken().then((token) => {
       tokenRef.current = token;
     });
+  }, []);
+
+  useEffect(() => {
+    const closeMenu = () => setEdgeMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+    };
   }, []);
 
   useEffect(() => {
@@ -439,6 +455,29 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
     [failedDependencyNodeIds, simulateFailure]
   );
 
+  const onEdgeContextMenu: EdgeMouseHandler = useCallback(
+    (event, edge) => {
+      if (!onExplainEdge || !dependencyData) return;
+      event.preventDefault();
+      const sourceNode = dependencyData.nodes.find((node) => node.id === edge.source);
+      const targetNode = dependencyData.nodes.find((node) => node.id === edge.target);
+      const sourceIr = String((sourceNode?.data as Record<string, unknown> | undefined)?.ir_node_id ?? '').trim();
+      const targetIr = String((targetNode?.data as Record<string, unknown> | undefined)?.ir_node_id ?? '').trim();
+      const edgeType = String((edge.data as Record<string, unknown> | undefined)?.edge_type ?? edge.label ?? '').trim();
+      setEdgeMenu({
+        x: event.clientX,
+        y: event.clientY,
+        edgeId: String(edge.id),
+        payload: {
+          source_ir_node_id: sourceIr,
+          target_ir_node_id: targetIr,
+          edge_type: edgeType,
+        },
+      });
+    },
+    [dependencyData, onExplainEdge]
+  );
+
   const onResizeStart = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -591,6 +630,7 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         onNodeContextMenu={onNodeContextMenu}
+        onEdgeContextMenu={onEdgeContextMenu}
         onInit={setInstance}
         fitView
         fitViewOptions={{ padding: 0.18 }}
@@ -651,6 +691,23 @@ export default function DependencyGraph({ onOpenFlowchartNode }: DependencyGraph
           </div>
         </Panel>
       </ReactFlow>
+      {edgeMenu && onExplainEdge && (
+        <div
+          className="fixed z-[80] min-w-[132px] rounded-lg border border-white/15 bg-slate-900/95 p-1.5 shadow-2xl"
+          style={{ left: edgeMenu.x, top: edgeMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            onClick={() => {
+              onExplainEdge(edgeMenu.edgeId, edgeMenu.payload);
+              setEdgeMenu(null);
+            }}
+            className="w-full text-left text-xs px-2 py-1.5 rounded bg-white/[0.04] hover:bg-cyan-500/20 text-slate-100"
+          >
+            Explain this
+          </button>
+        </div>
+      )}
 
       {activeNode && (
         <div className="absolute top-0 right-0 h-full w-80 bg-slate-950/95 border-l border-white/10 p-4 z-20">
