@@ -16,6 +16,7 @@ import DependencyGraph from '../components/dependency/DependencyGraph';
 import ExecutionVisualizer from '../components/execution/ExecutionVisualizer';
 import CoverageWorkspace from '../components/coverage/CoverageWorkspace';
 import ExplanationPanel from '../components/ExplanationPanel';
+import GitHubWorkspace from '../components/github/GitHubWorkspace';
 import { Button } from '../components/ui/Button';
 import { useExplainAPI } from '../hooks/useExplainAPI';
 
@@ -45,6 +46,8 @@ export default function Dashboard() {
       ? isLoadingCoverage
     : activeTab === 'execution'
       ? isLoadingExecution
+      : activeTab === 'github'
+        ? false
       : isLoadingFlowchart;
 
   const analyzeActiveTab = () => {
@@ -115,16 +118,18 @@ export default function Dashboard() {
               {syncViewsEnabled ? 'Sync On' : 'Sync Off'}
             </button>
             <LanguageSelector />
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={analyzeActiveTab}
-              disabled={isLoading}
-              className="gap-2 shadow-blue-500/10"
-            >
-              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-              Analyze
-            </Button>
+            {activeTab !== 'github' ? (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={analyzeActiveTab}
+                disabled={isLoading}
+                className="gap-2 shadow-blue-500/10"
+              >
+                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                Analyze
+              </Button>
+            ) : null}
           </div>
         </header>
 
@@ -144,7 +149,7 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col min-w-0 bg-slate-950/10">
             <div className="flex items-center justify-between p-2 bg-slate-950/40 border-b border-white/5">
               <div className="flex gap-2">
-                {['flowchart', 'execution', 'dependency', 'coverage'].map(tab => (
+                {['flowchart', 'execution', 'dependency', 'coverage', 'github'].map(tab => (
                   <button
                     key={tab}
                     onClick={() => setActiveTab(tab)}
@@ -203,6 +208,7 @@ export default function Dashboard() {
                       }}
                     />
                   )}
+                  {activeTab === 'github' && <GitHubWorkspace />}
                 </motion.div>
               </AnimatePresence>
             </div>
