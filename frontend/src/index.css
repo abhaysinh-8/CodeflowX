@@ -75,6 +75,11 @@
   border-left: 2px solid rgba(244, 63, 94, 0.72) !important;
 }
 
+.monaco-explain-highlight {
+  background-color: rgba(34, 211, 238, 0.14) !important;
+  border-left: 2px solid rgba(34, 211, 238, 0.78) !important;
+}
+
 .codeflowx-selection-pulse {
   animation: codeflowx-selection-pulse 500ms ease-out;
 }

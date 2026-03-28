@@ -3,6 +3,7 @@ from fastapi import (
     HTTPException,
     Depends,
     Request,
+    Body,
     Query,
     WebSocket,
     WebSocketDisconnect,
@@ -23,9 +24,12 @@ import hashlib
 import time
 import json
 from dataclasses import dataclass, field
+from dotenv import load_dotenv
 
 import sys
 import os
+
+load_dotenv()
 
 # Ensure the backend directory is in the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +49,8 @@ from backend.modules.coverage import (
     apply_coverage_to_flowchart,
 )
 from backend.api.auth import get_current_user, create_access_token
+from backend.api.explain import router as explain_router, enqueue_failure_explanation
+from backend.modules.ai_explainer.schemas import FailureExplainRequest
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="CodeFlowX+ API v1")
@@ -58,6 +64,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(explain_router)
 
 class CodeParseRequest(BaseModel):
     code: str
@@ -917,17 +924,38 @@ async def get_analyze_flowchart_for_node(
 @limiter.limit("20/minute")
 async def simulate_failure(
     request: Request,
-    body: FailureSimulationRequest,
+    body: Dict[str, Any] = Body(...),
     user: dict = Depends(get_current_user),
 ):
     """
     Static failure blast-radius simulation over cached dependency graph.
+
+    Backward-compatible extension:
+    - default mode (legacy): blast-radius simulation payload
+    - mode="explain": enqueue AI failure explanation job and return job_id
     """
-    cached = await ANALYZE_RESULT_STORE.get_result(body.job_id)
+    mode = str(body.get("mode", "")).strip().lower()
+    if mode == "explain":
+        try:
+            explain_body = FailureExplainRequest.model_validate(body)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid explain payload: {exc}")
+        return await enqueue_failure_explanation(
+            request=request,
+            body=explain_body,
+            user=user,
+        )
+
+    try:
+        legacy_body = FailureSimulationRequest.model_validate(body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid failure simulation payload: {exc}")
+
+    cached = await ANALYZE_RESULT_STORE.get_result(legacy_body.job_id)
     if not cached:
         raise HTTPException(status_code=404, detail="Analysis job not found or expired")
 
-    failed_identifiers = _normalize_failed_function_identifiers(body)
+    failed_identifiers = _normalize_failed_function_identifiers(legacy_body)
     if not failed_identifiers:
         raise HTTPException(
             status_code=400,
@@ -941,7 +969,7 @@ async def simulate_failure(
 
     return {
         "status": "success",
-        "job_id": body.job_id,
+        "job_id": legacy_body.job_id,
         **simulation,
     }
 

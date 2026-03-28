@@ -15,7 +15,9 @@ import LanguageSelector from '../components/editor/LanguageSelector';
 import DependencyGraph from '../components/dependency/DependencyGraph';
 import ExecutionVisualizer from '../components/execution/ExecutionVisualizer';
 import CoverageWorkspace from '../components/coverage/CoverageWorkspace';
+import ExplanationPanel from '../components/ExplanationPanel';
 import { Button } from '../components/ui/Button';
+import { useExplainAPI } from '../hooks/useExplainAPI';
 
 export default function Dashboard() {
   const {
@@ -34,6 +36,7 @@ export default function Dashboard() {
   } = useStore();
   const { analyze: analyzeFlowchart } = useFlowchartAPI();
   const executionAPI = useExecutionAPI();
+  const explainAPI = useExplainAPI();
 
   const [activeTab, setActiveTab] = useState('flowchart');
   const isLoading = activeTab === 'dependency'
@@ -162,7 +165,13 @@ export default function Dashboard() {
                   exit={{ opacity: 0, y: -10 }}
                   className="h-full"
                 >
-                  {activeTab === 'flowchart' && <FlowchartCanvas />}
+                  {activeTab === 'flowchart' && (
+                    <FlowchartCanvas
+                      onExplainRequest={(type, targetId, payload = {}) => {
+                        void explainAPI.requestExplanation(type, targetId, payload);
+                      }}
+                    />
+                  )}
                   {activeTab === 'execution' && (
                     <ExecutionVisualizer
                       runExecution={executionAPI.runExecution}
@@ -182,14 +191,26 @@ export default function Dashboard() {
                         selectNode(irNodeId, 'dependency');
                         setActiveTab('flowchart');
                       }}
+                      onExplainEdge={(edgeId, payload = {}) => {
+                        void explainAPI.requestExplanation('edge', edgeId, payload);
+                      }}
                     />
                   )}
                   {activeTab === 'coverage' && (
-                    <CoverageWorkspace />
+                    <CoverageWorkspace
+                      onExplainRequest={(type, targetId, payload = {}) => {
+                        void explainAPI.requestExplanation(type, targetId, payload);
+                      }}
+                    />
                   )}
                 </motion.div>
               </AnimatePresence>
             </div>
+          </div>
+
+          {/* Explanation Panel */}
+          <div className="w-[340px] border-l border-white/5 bg-slate-950/30 p-3">
+            <ExplanationPanel onExplainMore={() => { void explainAPI.explainMore(); }} />
           </div>
 
           {/* IR Debug Panel */}
