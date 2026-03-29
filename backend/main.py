@@ -50,6 +50,7 @@ from backend.modules.coverage import (
 )
 from backend.api.auth import get_current_user, create_access_token
 from backend.api.explain import router as explain_router, enqueue_failure_explanation
+from backend.github.github import router as github_router
 from backend.modules.ai_explainer.schemas import FailureExplainRequest
 
 limiter = Limiter(key_func=get_remote_address)
@@ -65,6 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(explain_router)
+app.include_router(github_router)
 
 class CodeParseRequest(BaseModel):
     code: str
